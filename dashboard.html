@@ -1,0 +1,1240 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard Comercial Open · Inteligencia de Ventas</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<script src="https://accounts.google.com/gsi/client" defer></script>
+<style>
+:root {
+  --primary: #d9662c;
+  --primary-dark: #b8531f;
+  --primary-light: #e8874a;
+  --bg: #f7f6f3;
+  --bg-card: #ffffff;
+  --bg-card-hover: #faf9f6;
+  --bg-elev: #ffffff;
+  --bg-sidebar: #fbfaf7;
+  --border: #e0dcd3;
+  --border-soft: #ebe8e1;
+  --text: #24211c;
+  --text-muted: #6b665a;
+  --text-dim: #928c7d;
+  --success: #1f9d6e;
+  --danger: #dc4747;
+  --warning: #b45309;
+  --info: #2563eb;
+  --purple: #7c3aed;
+  --pink: #db2777;
+  --header-blue: #24384f;
+  --shadow-card: 0 1px 2px rgba(20,18,14,0.05), 0 0 0 1px var(--border-soft);
+  --shadow-elev: 0 8px 24px rgba(20,18,14,0.10), 0 0 0 1px var(--border);
+  --sb-w: 240px;
+  --sb-w-collapsed: 64px;
+  --transition: 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13.5px;
+  line-height: 1.5;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+.app { display: flex; min-height: 100vh; }
+
+/* SIDEBAR */
+.sidebar {
+  width: var(--sb-w);
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border-soft);
+  display: flex;
+  flex-direction: column;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  transition: width var(--transition);
+  flex-shrink: 0;
+  z-index: 50;
+}
+.sidebar.collapsed { width: var(--sb-w-collapsed); }
+.sb-brand {
+  display: flex; align-items: center; gap: 10px;
+  padding: 18px 16px;
+  border-bottom: 1px solid var(--border-soft);
+  position: relative;
+}
+.sb-logo {
+  width: 32px; height: 32px;
+  background: linear-gradient(135deg, var(--primary), var(--primary-light));
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 800; font-size: 16px; color: white;
+  box-shadow: 0 2px 8px rgba(217,102,44,0.25);
+  flex-shrink: 0;
+}
+.sb-brand-text { overflow: hidden; transition: opacity var(--transition); }
+.sb-brand-text h1 { font-size: 14px; font-weight: 700; letter-spacing: -0.2px; white-space: nowrap; }
+.sb-brand-text p { font-size: 10px; color: var(--text-muted); margin-top: 1px; white-space: nowrap; }
+.sidebar.collapsed .sb-brand-text { opacity: 0; pointer-events: none; }
+.sb-toggle {
+  position: absolute;
+  right: -10px; top: 24px;
+  width: 20px; height: 20px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-muted);
+  transition: all var(--transition);
+  z-index: 51;
+}
+.sb-toggle:hover { color: var(--primary); border-color: var(--primary); }
+.sb-toggle svg { width: 10px; height: 10px; transition: transform var(--transition); }
+.sidebar.collapsed .sb-toggle svg { transform: rotate(180deg); }
+
+.sb-nav {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 8px;
+  scrollbar-width: thin;
+}
+.nav-group { margin-bottom: 14px; }
+.nav-group-title {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-dim);
+  font-weight: 700;
+  padding: 8px 12px 4px;
+  transition: opacity var(--transition);
+}
+.sidebar.collapsed .nav-group-title { opacity: 0; height: 4px; padding: 0; pointer-events: none; }
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  padding: 8px 12px;
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  text-align: left;
+  transition: all 0.14s;
+  margin-bottom: 1px;
+  white-space: nowrap;
+  position: relative;
+}
+.nav-item svg { width: 16px; height: 16px; flex-shrink: 0; }
+.nav-item-text { transition: opacity var(--transition); overflow: hidden; }
+.sidebar.collapsed .nav-item-text { opacity: 0; }
+.sidebar.collapsed .nav-item { justify-content: center; padding: 10px; }
+.nav-item:hover { background: var(--bg-card); color: var(--text); }
+.nav-item.active {
+  background: rgba(217,102,44,0.12);
+  color: var(--primary);
+  font-weight: 600;
+}
+.nav-item.active::before {
+  content: '';
+  position: absolute;
+  left: -8px; top: 50%;
+  transform: translateY(-50%);
+  width: 3px; height: 20px;
+  background: var(--primary);
+  border-radius: 0 3px 3px 0;
+}
+.sidebar.collapsed .nav-item.active::before { left: -4px; }
+
+.sb-foot {
+  padding: 12px 8px;
+  border-top: 1px solid var(--border-soft);
+  font-size: 10px;
+  color: var(--text-dim);
+  text-align: center;
+  transition: opacity var(--transition);
+}
+.sidebar.collapsed .sb-foot { opacity: 0; pointer-events: none; }
+
+/* MAIN AREA */
+.main-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.top-bar {
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border-soft);
+  padding: 12px 24px;
+  position: sticky; top: 0; z-index: 40;
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  backdrop-filter: blur(8px);
+}
+.tb-breadcrumb {
+  display: flex; align-items: center; gap: 8px;
+  color: var(--text-muted); font-size: 13px;
+}
+.tb-breadcrumb .crumb-sep { color: var(--text-dim); }
+.tb-breadcrumb .crumb-active { color: var(--text); font-weight: 600; }
+.tb-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.tag {
+  background: rgba(217,102,44,0.12);
+  color: var(--primary);
+  border: 1px solid rgba(217,102,44,0.25);
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+.tag.green { background: rgba(31,157,110,0.12); color: var(--success); border-color: rgba(31,157,110,0.25); }
+.btn {
+  background: var(--primary);
+  color: white;
+  border: none;
+  padding: 7px 13px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 12.5px;
+  transition: all 0.14s;
+  font-family: inherit;
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.btn:hover { background: var(--primary-dark); transform: translateY(-1px); }
+.btn:active { transform: translateY(0); }
+.btn-ghost {
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+}
+.btn-ghost:hover { background: var(--bg-card-hover); color: var(--text); border-color: var(--text-muted); transform: translateY(-1px); }
+.btn-success { background: var(--success); }
+.btn-success:hover { background: #178055; }
+.btn-icon {
+  width: 30px; height: 30px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.tag {
+  background: rgba(217,102,44,0.15);
+  color: var(--primary);
+  border: 1px solid rgba(217,102,44,0.4);
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.tag.green { background: rgba(31,157,110,0.15); color: var(--success); border-color: rgba(31,157,110,0.4); }
+.btn {
+  background: var(--primary);
+  color: white;
+  border: none;
+  padding: 8px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 13px;
+  transition: all 0.15s;
+  font-family: inherit;
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.btn:hover { background: var(--primary-dark); }
+.btn-ghost {
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+}
+.btn-ghost:hover { background: var(--bg-card-hover); color: var(--text); border-color: var(--text-muted); }
+.btn-success { background: var(--success); }
+.btn-success:hover { background: #178055; }
+
+/* DROP ZONE */
+.dropzone {
+  position: fixed;
+  inset: 0;
+  background: rgba(247,246,243,0.97);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  flex-direction: column;
+  gap: 24px;
+  padding: 20px;
+  overflow-y: auto;
+}
+.dropzone.hide { display: none; }
+.dropzone-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  max-width: 1100px;
+  width: 100%;
+}
+.dropzone-box {
+  border: 3px dashed var(--border);
+  border-radius: 16px;
+  padding: 30px 20px;
+  text-align: center;
+  background: var(--bg-card);
+  transition: all 0.2s;
+  position: relative;
+}
+.dropzone-box.required { border-color: var(--primary); }
+.dropzone-box.optional { border-color: var(--info); }
+.dropzone-box.dragging { background: rgba(217,102,44,0.1); border-color: var(--primary-light); transform: scale(1.02); }
+.dropzone-box.loaded { border-color: var(--success); border-style: solid; background: rgba(31,157,110,0.05); }
+.dropzone-box .step { position: absolute; top: 12px; left: 12px; background: var(--primary); color: white; width:28px; height:28px; border-radius:50%; font-weight:800; font-size:13px; display:flex; align-items:center; justify-content:center; }
+.dropzone-icon { font-size: 48px; margin-bottom: 10px; }
+.dropzone h2 { font-size: 18px; margin-bottom: 6px; }
+.dropzone .subtitle { color: var(--text-muted); margin-bottom: 14px; font-size: 13px; }
+.dropzone label { cursor: pointer; }
+.dropzone input[type=file] { display: none; }
+.dropzone-title { text-align: center; font-size: 24px; font-weight: 800; margin-bottom: 10px; }
+.dropzone-help { text-align: center; color: var(--text-muted); margin-bottom: 8px; font-size: 14px; }
+.dz-loaded-name { color: var(--success); font-size: 12px; margin-top: 8px; word-break: break-all; }
+.dz-actions { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+.btn-launch { background: var(--success); padding: 14px 32px; font-size: 16px; }
+.btn-launch:hover { background: #178055; }
+.btn-launch:disabled { background: var(--border); color: var(--text-dim); cursor: not-allowed; }
+
+/* FILTROS */
+.filters {
+  background: var(--bg-card);
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--border-soft);
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+  position: sticky; top: 53px; z-index: 30;
+  backdrop-filter: blur(8px);
+}
+.filter-group { display: flex; flex-direction: column; gap: 4px; }
+.filter-group label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+.filter-group select, .filter-group input {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  outline: none;
+  transition: all 0.14s;
+  font-family: inherit;
+}
+.filter-group select:hover, .filter-group input:hover { border-color: var(--primary); }
+.filter-group select:focus, .filter-group input:focus { border-color: var(--primary); box-shadow: 0 0 0 2px rgba(217,102,44,0.15); }
+
+/* MULTISELECT DROPDOWN (Status OPEN) */
+.ms-wrap { position: relative; }
+.ms-trigger {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 7px 26px 7px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  font-family: inherit;
+  width: 100%;
+  text-align: left;
+  position: relative;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ms-trigger:hover { border-color: var(--primary); }
+.ms-trigger::after {
+  content: '▾';
+  position: absolute;
+  right: 8px; top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  font-size: 10px;
+}
+.ms-trigger.has-selection { border-color: var(--primary); }
+.ms-trigger .ms-count {
+  display: inline-block;
+  background: var(--primary);
+  color: white;
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 700;
+  margin-left: 4px;
+}
+.ms-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px;
+  z-index: 200;
+  min-width: 100%;
+  box-shadow: 0 4px 16px rgba(20,18,14,0.12);
+  display: none;
+}
+.ms-panel.open { display: block; }
+.ms-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  user-select: none;
+}
+.ms-option:hover { background: var(--bg-card-hover); }
+.ms-option input[type=checkbox] {
+  width: 14px; height: 14px;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+.ms-option .ms-label { flex: 1; }
+.ms-option .ms-count-val { font-size: 10px; color: var(--text-muted); }
+.ms-actions {
+  display: flex;
+  gap: 4px;
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+  padding-top: 6px;
+}
+.ms-actions button {
+  flex: 1;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  padding: 5px;
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.ms-actions button:hover { color: var(--primary); border-color: var(--primary); }
+
+/* CONTENT */
+main.content { padding: 20px 24px; flex: 1; }
+.section { display: none; animation: fadeIn 0.22s ease; }
+.section.active { display: block; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+.section-title { font-size: 18px; font-weight: 700; margin-bottom: 4px; color: var(--text); letter-spacing: -0.3px; }
+.section-subtitle { font-size: 13px; color: var(--text-muted); margin-bottom: 16px; }
+.section-header { margin-bottom: 18px; }
+
+/* KPI GRID */
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 14px;
+  margin-bottom: 18px;
+}
+.kpi {
+  background: var(--bg-card);
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  padding: 14px 16px;
+  position: relative;
+  overflow: hidden;
+  transition: all var(--transition);
+  cursor: default;
+}
+.kpi:hover {
+  border-color: var(--border);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(20,18,14,0.08);
+}
+.kpi::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: var(--primary); }
+.kpi.success::before { background: var(--success); }
+.kpi.danger::before { background: var(--danger); }
+.kpi.info::before { background: var(--info); }
+.kpi.warning::before { background: var(--warning); }
+.kpi.purple::before { background: var(--purple); }
+.kpi-label { font-size: 10px; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.5px; font-weight: 600; }
+.kpi-value { font-size: 22px; font-weight: 800; margin-top: 4px; letter-spacing: -0.5px; line-height: 1.2; }
+.kpi-sub { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+.kpi-sparkline { position: absolute; right: 8px; top: 22px; width: 64px; height: 24px; opacity: 0.85; pointer-events: none; }
+
+/* KPI GRID GRANDE (3 cards: V.Bruta, V.Neta, Utilidad) */
+.kpi-grid-big {
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  margin-bottom: 18px;
+}
+.kpi-big {
+  background: var(--bg-card);
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  padding: 18px 20px 16px;
+  position: relative;
+  overflow: hidden;
+  transition: all var(--transition);
+  --accent: var(--primary);
+}
+.kpi-big:hover {
+  border-color: var(--border);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(20,18,14,0.10);
+}
+.kpi-big::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: var(--accent); }
+.kpi-big-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+.kpi-big-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  letter-spacing: 0.6px;
+  font-weight: 700;
+}
+.kpi-big-sub { font-size: 11px; color: var(--text-muted); font-weight: 500; }
+.kpi-big-value {
+  font-size: 32px;
+  font-weight: 800;
+  letter-spacing: -0.8px;
+  line-height: 1.1;
+  color: var(--text);
+  margin-bottom: 2px;
+}
+.kpi-big-spark { width: 100%; height: 36px; margin: 4px 0 12px; opacity: 0.85; }
+.kpi-big-compare {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: var(--border-soft);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-top: 12px;
+}
+.kpi-cmp {
+  background: rgba(20,18,14,0.035);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.kpi-cmp-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  letter-spacing: 0.4px;
+  font-weight: 600;
+}
+.kpi-cmp-pct {
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: -0.3px;
+  line-height: 1.1;
+  color: var(--text);
+}
+.kpi-cmp-pct.pos { color: var(--success); }
+.kpi-cmp-pct.neg { color: var(--danger); }
+.kpi-cmp-pct.muted { color: var(--text-muted); }
+.kpi-cmp-diff {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.kpi-cmp-diff.pos { color: var(--success); opacity: 0.85; }
+.kpi-cmp-diff.neg { color: var(--danger); opacity: 0.85; }
+
+/* CARDS */
+.cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  gap: 14px;
+  margin-bottom: 16px;
+}
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  padding: 16px;
+  transition: all var(--transition);
+}
+.card:hover {
+  border-color: var(--border);
+  box-shadow: 0 4px 14px rgba(20,18,14,0.07);
+}
+.card.full { grid-column: 1/-1; }
+.card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap: 10px; flex-wrap: wrap; }
+.card-title { font-size: 14px; font-weight: 700; }
+.card-meta { font-size: 11px; color: var(--text-muted); }
+.chart-container { position: relative; height: 280px; }
+.chart-container.tall { height: 380px; }
+.chart-container.short { height: 220px; }
+
+/* TABLA */
+.table-wrap { overflow-x: auto; max-height: 700px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px; }
+table { width: 100%; border-collapse: collapse; font-size: 12px; }
+thead { position: sticky; top: 0; z-index: 10; }
+thead.top { background: var(--header-blue); }
+thead.top th { color: white; font-weight: 700; padding: 9px 8px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.3px; }
+th {
+  text-align: left;
+  padding: 9px 10px;
+  font-weight: 700;
+  font-size: 11px;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-card);
+}
+.table-default thead th { cursor: pointer; text-transform: uppercase; letter-spacing: 0.3px; }
+.table-default thead th:hover { color: var(--primary); }
+th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
+th.center, td.center { text-align: center; }
+td { padding: 6px 9px; border-bottom: 1px solid var(--border); }
+tbody tr:hover { background: var(--bg-card-hover); }
+.row-label {
+  background: rgba(192, 165, 134, 0.12);
+  font-weight: 700;
+  padding: 7px 10px !important;
+  position: sticky;
+  left: 0;
+}
+.subtotal-row { background: var(--header-blue) !important; color: white; font-weight: 700; }
+.subtotal-row td { color: white !important; padding: 9px !important; }
+.total-row { background: rgba(217,102,44,0.15) !important; font-weight: 700; }
+.pos { color: var(--success); }
+.neg { color: var(--danger); }
+.alc-good { background: rgba(31,157,110,0.18); color: #1f9d6e; font-weight: 700; }
+.alc-bad { background: rgba(220,71,71,0.18); color: #dc4747; font-weight: 700; }
+.alc-warn { background: rgba(180,83,9,0.15); color: #b45309; font-weight: 700; }
+.pill { display: inline-block; padding: 1px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; background: var(--bg); color: var(--text-muted); border: 1px solid var(--border); }
+.pill.success { background: rgba(31,157,110,0.15); color: var(--success); border-color: transparent; }
+.pill.warning { background: rgba(180,83,9,0.15); color: var(--warning); border-color: transparent; }
+.pill.danger { background: rgba(220,71,71,0.15); color: var(--danger); border-color: transparent; }
+.pill.info { background: rgba(37,99,235,0.15); color: var(--info); border-color: transparent; }
+
+/* HEATMAP */
+.heatmap-row { display: grid; gap: 2px; align-items: center; margin-bottom: 2px; }
+.heatmap-cell { padding: 8px 4px; text-align: center; font-size: 11px; font-weight: 600; border-radius: 3px; }
+.heatmap-label { padding: 6px 8px; font-size: 12px; font-weight: 600; }
+.heatmap-row.header { color: var(--text-muted); font-size: 10px; text-transform: uppercase; font-weight: 600; }
+.heatmap-row.header > div { padding: 6px 4px; text-align: center; }
+
+/* ALERT */
+.alert {
+  background: rgba(217,102,44,0.1);
+  border: 1px solid rgba(217,102,44,0.3);
+  color: var(--text);
+  padding: 12px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+.alert.info { background: rgba(37,99,235,0.1); border-color: rgba(37,99,235,0.3); }
+.alert.warning { background: rgba(180,83,9,0.1); border-color: rgba(180,83,9,0.3); }
+.alert.danger { background: rgba(220,71,71,0.1); border-color: rgba(220,71,71,0.3); }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 5px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
+
+.loading-overlay {
+  position: fixed; inset: 0;
+  background: rgba(247,246,243,0.92);
+  display: flex; align-items: center; justify-content: center;
+  flex-direction: column; gap: 16px;
+  z-index: 9998;
+}
+.loading-overlay.hide { display: none; }
+.spinner {
+  width: 40px; height: 40px;
+  border: 3px solid var(--border);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* CARD HEADER ICON-BUTTONS (export PNG) */
+.card-actions { display: flex; gap: 4px; align-items: center; }
+.card-icon-btn {
+  background: transparent;
+  border: 1px solid var(--border-soft);
+  color: var(--text-muted);
+  width: 26px; height: 26px;
+  border-radius: 5px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.14s;
+}
+.card-icon-btn:hover { color: var(--primary); border-color: var(--primary); background: rgba(217,102,44,0.08); }
+.card-icon-btn svg { width: 13px; height: 13px; }
+
+/* SEARCH INPUT (tablas) */
+.tbl-search {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 6px 10px 6px 30px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  outline: none;
+  width: 220px;
+  font-family: inherit;
+  background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="%236b665a" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="15.65" y2="15.65"/></svg>');
+  background-repeat: no-repeat;
+  background-position: 8px center;
+  background-size: 14px 14px;
+}
+.tbl-search:focus { border-color: var(--primary); box-shadow: 0 0 0 2px rgba(217,102,44,0.15); }
+.tbl-search::placeholder { color: var(--text-dim); }
+
+/* MOBILE */
+@media (max-width: 900px) {
+  .sidebar { position: fixed; left: 0; top: 0; height: 100vh; transform: translateX(-100%); transition: transform var(--transition); }
+  .sidebar.mobile-open { transform: translateX(0); box-shadow: 4px 0 24px rgba(20,18,14,0.15); }
+  .sb-toggle { display: none; }
+  .top-bar { padding-left: 60px; }
+  .tb-mobile-burger { display: inline-flex !important; }
+}
+.tb-mobile-burger { display: none; background: transparent; border: 1px solid var(--border); color: var(--text); width: 32px; height: 32px; align-items: center; justify-content: center; border-radius: 6px; cursor: pointer; position: absolute; left: 16px; top: 50%; transform: translateY(-50%); }
+
+@media (max-width: 768px) {
+  .kpi-value { font-size: 18px; }
+  .filters { grid-template-columns: 1fr 1fr; top: 49px; }
+  main.content { padding: 16px; }
+  .dropzone-grid { grid-template-columns: 1fr; }
+  .tbl-search { width: 150px; }
+}
+</style>
+</head>
+<body>
+
+<!-- Pantalla de estado inicial: login con Google + carga en vivo desde Drive -->
+<div class="dropzone" id="dropzone">
+  <div class="dropzone-title">📊 Dashboard Comercial Open</div>
+  <div class="dropzone-help" id="dzStatusText">Inicia sesión con tu cuenta de Google para cargar los datos.</div>
+  <div class="spinner" id="dzSpinner" style="display:none"></div>
+  <div class="dz-actions" id="dzSignInActions">
+    <button class="btn btn-launch" id="btnGoogleSignIn">Iniciar sesión con Google</button>
+  </div>
+  <div class="dz-actions" id="dzErrorActions" style="display:none">
+    <button class="btn" id="btnRetryDrive">↻ Reintentar</button>
+  </div>
+</div>
+
+<div class="loading-overlay hide" id="loading">
+  <div class="spinner"></div>
+  <div id="loadingText">Procesando datos...</div>
+</div>
+
+<div class="app" id="app" style="display:none">
+
+<aside class="sidebar" id="sidebar">
+  <div class="sb-brand">
+    <div class="sb-logo">O</div>
+    <div class="sb-brand-text">
+      <h1>Open</h1>
+      <p>Dashboard Comercial</p>
+    </div>
+    <button class="sb-toggle" id="sbToggle" title="Colapsar menú">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
+    </button>
+  </div>
+  <nav class="sb-nav" id="sbNav">
+    <div class="nav-group">
+      <div class="nav-group-title">Performance</div>
+      <button class="nav-item active" data-tab="resumen">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>
+        <span class="nav-item-text">Resumen</span>
+      </button>
+      <button class="nav-item" data-tab="empresa">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18M5 21V7l8-4v18M19 21V11l-6-4"/><path d="M9 9h.01M9 13h.01M9 17h.01"/></svg>
+        <span class="nav-item-text">Por Empresa</span>
+      </button>
+      <button class="nav-item" data-tab="vendedor">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        <span class="nav-item-text">Por Vendedor</span>
+      </button>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-title">Análisis</div>
+      <button class="nav-item" data-tab="alcanceCliente">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
+        <span class="nav-item-text">Alcance Cliente</span>
+      </button>
+      <button class="nav-item" data-tab="comparativo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
+        <span class="nav-item-text">Comparativo Anual</span>
+      </button>
+      <button class="nav-item" data-tab="estrategia">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+        <span class="nav-item-text">Estrategia</span>
+      </button>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-title">Comercial</div>
+      <button class="nav-item" data-tab="proveedor">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 3h15v13H1z"/><path d="M16 8h4l3 3v5h-7"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+        <span class="nav-item-text">Por Proveedor</span>
+      </button>
+      <button class="nav-item" data-tab="medios">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
+        <span class="nav-item-text">Mix por Categoría</span>
+      </button>
+      <button class="nav-item" data-tab="clientes">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        <span class="nav-item-text">Clientes</span>
+      </button>
+      <button class="nav-item" data-tab="holdings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 22h20"/><path d="M3 11h18v11H3z"/><path d="M5 11V7l7-4 7 4v4"/></svg>
+        <span class="nav-item-text">Holdings/Agencias</span>
+      </button>
+      <button class="nav-item" data-tab="geografia">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+        <span class="nav-item-text">Geografía</span>
+      </button>
+      <button class="nav-item" data-tab="estacionalidad">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+        <span class="nav-item-text">Estacionalidad</span>
+      </button>
+      <button class="nav-item" data-tab="rentabilidad">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+        <span class="nav-item-text">Rentabilidad</span>
+      </button>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-title">Datos</div>
+      <button class="nav-item" data-tab="detalle">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+        <span class="nav-item-text">Detalle líneas</span>
+      </button>
+    </div>
+  </nav>
+  <div class="sb-foot">v6 · Open</div>
+</aside>
+
+<div class="main-wrap">
+<header class="top-bar">
+  <button class="tb-mobile-burger" id="mobileBurger" aria-label="Menú">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="16" height="16"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+  </button>
+  <div class="tb-breadcrumb">
+    <span>Dashboard</span>
+    <span class="crumb-sep">/</span>
+    <span class="crumb-active" id="crumbActive">Resumen</span>
+  </div>
+  <div class="tb-actions">
+    <span class="tag" id="dataInfo">— registros</span>
+    <span class="tag" id="fcInfo" style="display:none">Forecast cargado</span>
+    <button class="btn btn-ghost" id="btnRefreshDrive" title="Vuelve a leer Data Comercial y Forecast desde Google Drive">↻ Actualizar desde Drive</button>
+    <label class="btn btn-ghost" style="margin:0" title="Reemplaza el Forecast actual con un archivo local">
+      ↑ Forecast
+      <input type="file" id="fileInputFC" accept=".xlsx,.xls" style="display:none">
+    </label>
+    <button class="btn btn-ghost" onclick="resetFilters()">Limpiar filtros</button>
+    <button class="btn" onclick="exportCSV()">↓ CSV</button>
+  </div>
+</header>
+
+<div class="filters">
+  <div class="filter-group"><label>Año</label><select id="f-anio"><option value="">Todos</option></select></div>
+  <div class="filter-group"><label>Mes</label><select id="f-mes"><option value="">Todos</option></select></div>
+  <div class="filter-group"><label>Empresa</label><select id="f-emp"><option value="">Todas</option></select></div>
+  <div class="filter-group"><label>Ejecutivo</label><select id="f-eje"><option value="">Todos</option></select></div>
+  <div class="filter-group"><label>Estado</label><select id="f-est"><option value="">Todos</option></select></div>
+  <div class="filter-group"><label>Localidad</label><select id="f-loc"><option value="">Todas</option></select></div>
+  <div class="filter-group"><label>Categoría</label><select id="f-cat"><option value="">Todas</option></select></div>
+  <div class="filter-group"><label>Holding</label><select id="f-hol"><option value="">Todos</option></select></div>
+  <div class="filter-group"><label>Cliente</label><select id="f-cli"><option value="">Todos</option></select></div>
+  <div class="filter-group"><label>Tipo</label><select id="f-tp"><option value="">Todos</option></select></div>
+  <div class="filter-group"><label>Canal</label><select id="f-cc"><option value="">Todos</option><option value="Directo">Directo</option><option value="Agencia">Agencia</option></select></div>
+  <div class="filter-group">
+    <label>Status OPEN</label>
+    <div class="ms-wrap" id="msStatus">
+      <button type="button" class="ms-trigger" id="msStatusTrigger">Suma Forecast</button>
+      <div class="ms-panel" id="msStatusPanel"></div>
+    </div>
+  </div>
+</div>
+
+<main class="content">
+  <section class="section active" id="sec-resumen">
+    <div class="kpi-grid kpi-grid-big" id="kpis"></div>
+    <div class="cards-grid">
+      <div class="card full">
+        <div class="card-header"><div class="card-title">Venta Bruta mensual · Real vs Forecast vs Año pasado</div></div>
+        <div class="chart-container"><canvas id="ch-vbMes"></canvas></div>
+      </div>
+      <div class="card full">
+        <div class="card-header"><div class="card-title">Venta Neta mensual · Real vs Forecast vs Año pasado</div></div>
+        <div class="chart-container"><canvas id="ch-vnMes"></canvas></div>
+      </div>
+      <div class="card full">
+        <div class="card-header"><div class="card-title">Utilidad por línea mensual · Real vs Forecast vs Año pasado</div><div class="card-meta">Forecast Utilidad = Forecast Neto × 32%</div></div>
+        <div class="chart-container"><canvas id="ch-utMes"></canvas></div>
+      </div>
+      <div class="card full">
+        <div class="card-header"><div class="card-title">Directo vs Agencia · Venta Bruta + Utilidad</div></div>
+        <div class="chart-container"><canvas id="ch-canal"></canvas></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="sec-empresa">
+    <div class="alert info">🏢 Tablas mensuales por <b>Entretenimiento</b>, <b>Servicios</b> y <b>Grupo Open</b> (suma de ambas). Forecast Bruto = Forecast Neto / (1 − ROI% del año anterior).</div>
+    <div class="card full" id="cardBrutaEmp"></div>
+    <div class="card full" id="cardNetaEmp" style="margin-top:14px"></div>
+    <div class="card full" id="cardRentEmp" style="margin-top:14px"></div>
+  </section>
+
+  <section class="section" id="sec-vendedor">
+    <div class="alert info">👤 Tabla detallada por vendedor con todos los KPIs mensuales y % de Alcance vs Forecast.</div>
+    <div class="card full">
+      <div class="card-header">
+        <div class="card-title">Detalle individual por vendedor</div>
+        <div class="filter-group" style="width:240px">
+          <label>Vendedor</label>
+          <select id="vendedorSel"></select>
+        </div>
+      </div>
+      <div id="vendedorTable"></div>
+    </div>
+    <div class="card full" style="margin-top:14px">
+      <div class="card-header"><div class="card-title">Ranking general de vendedores</div></div>
+      <div id="vendedorRanking"></div>
+    </div>
+  </section>
+
+  <section class="section" id="sec-alcanceCliente">
+    <div class="alert info">🎯 Alcance Neto por cliente y vendedor. Marcas sin forecast aparecen individualmente y se suman como "Nuevo Negocio". El total del vendedor incluye Forecast + Nuevo Negocio. Margen objetivo: 32% sobre Forecast Neto. Pasa el mouse sobre cualquier celda para ver diferencia $ y venta del año anterior.</div>
+    <div class="card full">
+      <div class="card-header">
+        <div class="card-title">📅 Detalle Mensual</div>
+        <div class="filter-group" style="width:240px">
+          <label>Vendedor (activos 2026)</label>
+          <select id="acVendedorSel"><option value="">Todos</option></select>
+        </div>
+      </div>
+      <div id="alcanceClienteMensual"></div>
+    </div>
+    <div class="card full" style="margin-top:14px">
+      <div class="card-header"><div class="card-title">📊 Detalle Trimestral</div></div>
+      <div id="alcanceClienteTrimestral"></div>
+    </div>
+  </section>
+
+  <section class="section" id="sec-comparativo">
+    <div class="alert info">📈 Comparativo entre años. Ignora filtro de Año, respeta los demás. Solo Facturable.</div>
+    <div class="cards-grid">
+      <div class="card">
+        <div class="card-header"><div class="card-title">Venta Bruta · año vs año</div></div>
+        <div class="chart-container tall"><canvas id="ch-cmpBruta"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-title">Venta Neta · año vs año</div></div>
+        <div class="chart-container tall"><canvas id="ch-cmpNeta"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-title">Utilidad por línea · año vs año</div></div>
+        <div class="chart-container tall"><canvas id="ch-cmpUtil"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-title">Margen % · año vs año</div></div>
+        <div class="chart-container tall"><canvas id="ch-cmpMargen"></canvas></div>
+      </div>
+    </div>
+    <div class="card full" style="margin-top:14px">
+      <div class="card-header"><div class="card-title">Tabla comparativa mensual</div></div>
+      <div id="tblComparativo"></div>
+    </div>
+  </section>
+
+  <section class="section" id="sec-estrategia">
+    <div class="alert">🔥 <b>Insights para dirigir la estrategia comercial.</b> Identifica oportunidades de upsell, riesgos de concentración, vendedores con mix limitado y combinaciones ganadoras.</div>
+    <div class="kpi-grid" id="estKpis"></div>
+    <div class="cards-grid">
+      <div class="card full">
+        <div class="card-header"><div class="card-title">🎯 Mix de venta por vendedor × categoría</div><div class="card-meta">% de cada categoría en cartera del vendedor</div></div>
+        <div id="mixVendedorMedio"></div>
+      </div>
+      <div class="card full">
+        <div class="card-header"><div class="card-title">⚠️ Concentración de cartera por vendedor</div><div class="card-meta">% que representa el top 1, 3, 5 cliente</div></div>
+        <div id="concentracionVendedor"></div>
+      </div>
+      <div class="card full">
+        <div class="card-header"><div class="card-title">📋 Desempeño por Cuenta</div><div class="card-meta">Vista detallada por cliente: comparativo YoY, mix de categorías, alcance, status</div></div>
+        <div id="desempenoCuenta"></div>
+      </div>
+      <div class="card full">
+        <div class="card-header"><div class="card-title">📅 Estacionalidad por vendedor</div><div class="card-meta">Comparativo 2026 vs 2025</div></div>
+        <div id="estacionalidadVendedor"></div>
+      </div>
+      <div class="card full">
+        <div class="card-header"><div class="card-title">📅 Estacionalidad por categoría</div><div class="card-meta">Comparativo 2026 vs 2025</div></div>
+        <div id="estacionalidadMedio"></div>
+      </div>
+      <div class="card full">
+        <div class="card-header"><div class="card-title">🚨 Holdings que erosionan margen</div></div>
+        <div id="holdingsRiesgo"></div>
+      </div>
+      <div class="card full">
+        <div class="card-header"><div class="card-title">⭐ Combinaciones ganadoras (Cliente × Categoría × Localidad)</div></div>
+        <div id="combinacionesTop"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="sec-proveedor">
+    <div class="alert info">🏭 Análisis de proveedores con <b>Score 0-100</b> (40% recurrencia + 30% margen + 30% monto), Pareto de costo, heatmap de uso, e insights automáticos. Fuzzy match consolida nombres similares.</div>
+    <div class="kpi-grid" id="provKpis"></div>
+
+    <!-- Insights automáticos -->
+    <div class="card full" style="margin-top:14px" id="cardProvInsights">
+      <div class="card-header"><div class="card-title">💡 Insights automáticos</div><div class="card-meta">Cambios vs 2025 que merecen atención</div></div>
+      <div id="provInsights"></div>
+    </div>
+
+    <!-- Top 15 con Score -->
+    <div class="card full" style="margin-top:14px">
+      <div class="card-header"><div class="card-title">🏆 Top 15 proveedores por Score (objetivo)</div><div class="card-meta">Score = 40% recurrencia + 30% margen + 30% monto</div></div>
+      <div id="tblProvTop15"></div>
+    </div>
+
+    <!-- Gráficas anteriores -->
+    <div class="cards-grid" style="margin-top:14px">
+      <div class="card">
+        <div class="card-header"><div class="card-title">Top 15 proveedores por costo</div></div>
+        <div class="chart-container tall"><canvas id="ch-provCosto"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-title">Top 15 proveedores por margen %</div><div class="card-meta">Solo con +3 compras</div></div>
+        <div class="chart-container tall"><canvas id="ch-provMargen"></canvas></div>
+      </div>
+    </div>
+
+    <!-- Pareto -->
+    <div class="card full" style="margin-top:14px">
+      <div class="card-header"><div class="card-title">📊 Concentración 80/20 · Pareto de proveedores</div><div class="card-meta">% del costo total que aporta cada proveedor (acumulado)</div></div>
+      <div class="chart-container tall"><canvas id="ch-provPareto"></canvas></div>
+    </div>
+
+    <!-- Heatmap mensual -->
+    <div class="card full" style="margin-top:14px">
+      <div class="card-header"><div class="card-title">🔥 Heatmap de uso mensual · Top 12 proveedores</div><div class="card-meta">Intensidad = costo del mes. Permite ver estacionalidad por proveedor</div></div>
+      <div id="provHeatmap"></div>
+    </div>
+
+    <!-- Detalle enriquecido -->
+    <div class="card full" style="margin-top:14px">
+      <div class="card-header">
+        <div class="card-title">Detalle por Proveedor</div>
+        <div class="card-actions">
+          <input type="text" class="tbl-search" placeholder="Buscar proveedor..." data-target="#tblProveedores table">
+        </div>
+      </div>
+      <div id="tblProveedores"></div>
+    </div>
+
+    <div class="card full" style="margin-top:14px">
+      <div class="card-header"><div class="card-title">🆕 Proveedores nuevos en 2026 / Perdidos de 2025</div></div>
+      <div class="cards-grid" style="grid-template-columns:1fr 1fr">
+        <div><h4 style="margin-bottom:8px;color:var(--success)">Nuevos en 2026</h4><div id="tblProvNuevos"></div></div>
+        <div><h4 style="margin-bottom:8px;color:var(--danger)">Perdidos (estaban en 2025, no en 2026)</h4><div id="tblProvPerdidos"></div></div>
+      </div>
+    </div>
+
+    <div class="card full" style="margin-top:14px">
+      <div class="card-header"><div class="card-title">Cruce Proveedor × Categoría</div><div class="card-meta">Hover para ver 2025 y diff</div></div>
+      <div id="tblProvCategoria"></div>
+    </div>
+
+    <div class="card full" style="margin-top:14px">
+      <div class="card-header"><div class="card-title">Cruce Proveedor × Vendedor</div><div class="card-meta">Hover para ver 2025 y diff</div></div>
+      <div id="tblProvVendedor"></div>
+    </div>
+  </section>
+
+  <section class="section" id="sec-medios">
+    <div class="alert info">🎬 Mix consolidado por categoría usando Soporte 2026 + Medio 2025 mapeados a categorías comunes. Tabla con comparativo 2025.</div>
+    <div class="cards-grid">
+      <div class="card">
+        <div class="card-header"><div class="card-title">Venta Bruta por categoría</div></div>
+        <div class="chart-container tall"><canvas id="ch-medBruta"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-title">Margen % por categoría</div></div>
+        <div class="chart-container tall"><canvas id="ch-medMargen"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-title">Propio vs Arrendado · Venta</div></div>
+        <div class="chart-container short"><canvas id="ch-propio"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-title">Propio vs Arrendado · Margen</div></div>
+        <div class="chart-container short"><canvas id="ch-propioMargen"></canvas></div>
+      </div>
+    </div>
+    <div class="card full" style="margin-top:14px">
+      <div class="card-header"><div class="card-title">Detalle por categoría</div></div>
+      <div id="tblMedios"></div>
+    </div>
+    <div class="card full" style="margin-top:14px">
+      <div class="card-header"><div class="card-title">Detalle por subcategoría (Soporte 2026 / Medio 2025)</div></div>
+      <div id="tblSubMedios"></div>
+    </div>
+  </section>
+
+  <section class="section" id="sec-clientes">
+    <div class="cards-grid">
+      <div class="card">
+        <div class="card-header"><div class="card-title">Top 20 clientes · Venta Bruta</div></div>
+        <div class="chart-container tall"><canvas id="ch-cliBruta"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-title">Concentración 80/20 · Pareto</div></div>
+        <div class="chart-container tall"><canvas id="ch-pareto"></canvas></div>
+      </div>
+    </div>
+    <div class="card full" style="margin-top:14px">
+      <div class="card-header">
+        <div class="card-title">Detalle por cliente</div>
+        <div class="card-actions">
+          <input type="text" class="tbl-search" placeholder="Buscar cliente..." data-target="#tblClientes table">
+        </div>
+      </div>
+      <div id="tblClientes"></div>
+    </div>
+  </section>
+
+  <section class="section" id="sec-holdings">
+    <div class="cards-grid">
+      <div class="card">
+        <div class="card-header"><div class="card-title">Ventas Netas por Holding</div></div>
+        <div class="chart-container tall"><canvas id="ch-holNeta"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-title">Margen por Holding</div></div>
+        <div class="chart-container tall"><canvas id="ch-holMargen"></canvas></div>
+      </div>
+    </div>
+    <div class="card full" style="margin-top:14px">
+      <div class="card-header">
+        <div class="card-title">Detalle por Holding</div>
+        <div class="card-actions">
+          <input type="text" class="tbl-search" placeholder="Buscar holding..." data-target="#tblHoldings table">
+        </div>
+      </div>
+      <div id="tblHoldings"></div>
+    </div>
+    <div class="card full" style="margin-top:14px">
+      <div class="card-header">
+        <div class="card-title">Detalle por Agencia</div>
+        <div class="card-actions">
+          <input type="text" class="tbl-search" placeholder="Buscar agencia..." data-target="#tblAgencias table">
+        </div>
+      </div>
+      <div id="tblAgencias"></div>
+    </div>
+  </section>
+
+  <section class="section" id="sec-geografia">
+    <div class="cards-grid">
+      <div class="card">
+        <div class="card-header"><div class="card-title">Top estados</div></div>
+        <div class="chart-container tall"><canvas id="ch-estado"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-title">Top localidades</div></div>
+        <div class="chart-container tall"><canvas id="ch-localidad"></canvas></div>
+      </div>
+    </div>
+    <div class="card full" style="margin-top:14px">
+      <div class="card-header"><div class="card-title">Detalle por estado</div></div>
+      <div id="tblEstados"></div>
+    </div>
+    <div class="card full" style="margin-top:14px">
+      <div class="card-header"><div class="card-title">Detalle por localidad (top 30)</div></div>
+      <div id="tblLocalidades"></div>
+    </div>
+  </section>
+
+  <section class="section" id="sec-estacionalidad">
+    <div class="card full">
+      <div class="card-header"><div class="card-title">Heatmap mensual · Año × Mes</div><div class="card-meta">Intensidad = Venta Neta</div></div>
+      <div id="heatmapAnioMes"></div>
+    </div>
+    <div class="cards-grid" style="margin-top:14px">
+      <div class="card">
+        <div class="card-header"><div class="card-title">Tendencia de ventas</div></div>
+        <div class="chart-container"><canvas id="ch-stTend"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-title">Variación intermensual</div></div>
+        <div class="chart-container"><canvas id="ch-stVar"></canvas></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="sec-rentabilidad">
+    <div class="kpi-grid" id="rentKpis"></div>
+    <div class="cards-grid">
+      <div class="card">
+        <div class="card-header"><div class="card-title">Distribución de margen por línea</div></div>
+        <div class="chart-container tall"><canvas id="ch-rentDist"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-title">Líneas con margen bajo o negativo</div></div>
+        <div class="table-wrap" style="max-height:380px"><table class="table-default"><thead><tr><th>Cliente</th><th>Vendedor</th><th>Categoría</th><th>Localidad</th><th class="num">Venta</th><th class="num">Margen %</th></tr></thead><tbody id="tbl-bajos"></tbody></table></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="sec-detalle">
+    <div class="alert">🔍 Tabla con todas las líneas filtradas. Click en encabezados para ordenar. Usa el buscador para filtrar por texto.</div>
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">Líneas detalle</div>
+        <div class="card-actions">
+          <input type="text" class="tbl-search" placeholder="Buscar..." data-target="#tblDetalle">
+          <div class="card-meta" id="detCount"></div>
+        </div>
+      </div>
+      <div class="table-wrap" style="max-height:700px">
+        <table class="table-default" id="tblDetalle">
+          <thead><tr>
+            <th data-sort="anio">Año</th><th data-sort="mes">Mes</th><th data-sort="emp">Empresa</th><th data-sort="eje">Vendedor</th><th data-sort="cli">Cliente</th><th data-sort="hol">Holding</th><th data-sort="age">Agencia</th><th data-sort="est">Estado</th><th data-sort="loc">Localidad</th><th data-sort="cat">Categoría</th><th data-sort="med">Medio</th><th data-sort="sop">Soporte</th><th data-sort="tp">Tipo</th><th class="num" data-sort="vb">V. Bruta</th><th class="num" data-sort="vn">V. Neta</th><th class="num" data-sort="ut">Util.</th><th class="num" data-sort="mg">Mgn%</th>
+          </tr></thead>
+          <tbody id="tbl-det"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+</main>
+</div><!-- /.main-wrap -->
+</div><!-- /.app -->
+
+<script src="engine.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
