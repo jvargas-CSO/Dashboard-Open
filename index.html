@@ -830,6 +830,13 @@ tbody tr:hover { background: var(--bg-card-hover); }
         <span class="nav-item-text">Detalle líneas</span>
       </button>
     </div>
+    <div class="nav-group">
+      <div class="nav-group-title">Asistente</div>
+      <button class="nav-item" data-tab="ia">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a5 5 0 0 1 5 5v2a5 5 0 0 1-10 0V7a5 5 0 0 1 5-5z"/><path d="M8 14v2a4 4 0 0 0 8 0v-2"/><line x1="12" y1="20" x2="12" y2="22"/><line x1="8" y1="22" x2="16" y2="22"/></svg>
+        <span class="nav-item-text">Preguntar a la IA</span>
+      </button>
+    </div>
   </nav>
   <div class="sb-foot">v6 · Open</div>
 </aside>
@@ -1227,6 +1234,19 @@ tbody tr:hover { background: var(--bg-card-hover); }
           </tr></thead>
           <tbody id="tbl-det"></tbody>
         </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="sec-ia">
+    <div class="alert info">🤖 Pregunta lo que quieras sobre los datos <b>actualmente filtrados</b> en el dashboard (arriba). El asistente solo ve un resumen agregado — no la base completa línea por línea.</div>
+    <div class="card full">
+      <div class="card-header"><div class="card-title">Asistente IA</div></div>
+      <div id="iaSuggestions" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px"></div>
+      <div id="iaChatHistory" style="display:flex;flex-direction:column;gap:14px;margin-bottom:16px;max-height:520px;overflow-y:auto"></div>
+      <div style="display:flex;gap:8px">
+        <input type="text" id="iaQuestionInput" class="tbl-search" style="flex:1;padding-left:12px;background-image:none" placeholder="Ej: ¿Qué vendedor tiene mejor margen este año?">
+        <button class="btn" id="iaAskBtn">Preguntar</button>
       </div>
     </div>
   </section>

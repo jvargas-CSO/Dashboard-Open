@@ -330,6 +330,7 @@ function attachListeners() {
     acVendedor = e.target.value;
     if (document.querySelector('.nav-item.active').dataset.tab === 'alcanceCliente') renderAlcanceCliente();
   });
+  setupIA();
 }
 function resetFilters() {
   Object.keys(filters).forEach(k => {
@@ -2213,4 +2214,109 @@ function exportCSV() {
   a.href = URL.createObjectURL(blob);
   a.download = `dashboard_open_${new Date().toISOString().slice(0,10)}.csv`;
   a.click();
+}
+
+// =========================================================================
+// ASISTENTE IA
+// =========================================================================
+const IA_WORKER_URL = 'https://dashboard-comercial-ai.jvargas-f6a.workers.dev';
+const IA_SUGGESTIONS = [
+  '¿Qué vendedor tiene mejor margen?',
+  '¿Cómo va la venta vs el forecast?',
+  '¿Qué categoría concentra más venta?',
+  '¿Hay riesgo de concentración en algún cliente?',
+];
+
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function buildAIContext() {
+  const data = Engine.facturable(Engine.applyFilters(filters));
+  const t = Engine.totalize(data);
+  const filtrosActivos = Object.entries(filters)
+    .filter(([k, v]) => k !== 'statusOpen' && v)
+    .map(([k, v]) => `${k}=${v}`);
+  const top = (key, n = 10) => Engine.groupBy(data, key)
+    .sort((a, b) => b.vb - a.vb)
+    .slice(0, n)
+    .map(g => ({ [key]: g.key, ventaBruta: Math.round(g.vb), ventaNeta: Math.round(g.vn), utilidad: Math.round(g.ut), margenPct: +g.margen.toFixed(1) }));
+
+  const resumen = {
+    filtrosActivosEnDashboard: filtrosActivos.length ? filtrosActivos : ['ninguno (se está viendo todo)'],
+    statusOpenIncluido: filters.statusOpen,
+    totales: {
+      ventaBruta: Math.round(t.vb),
+      ventaNeta: Math.round(t.vn),
+      utilidad: Math.round(t.ut),
+      margenPct: +t.margen.toFixed(1),
+      numeroDeLineas: t.n,
+      clientesUnicos: t.cli.size,
+    },
+    ventaBrutaMensual_EneADic: Engine.monthly(data, 'vb').map(v => Math.round(v)),
+    forecastNetoMensual_EneADic: (filters.anio ? Engine.forecastMonthlyTotal(parseInt(filters.anio)) : Engine.forecastMonthlyTotal()).map(v => Math.round(v)),
+    top10Vendedores: top('eje'),
+    top10Clientes: top('cli'),
+    top10Categorias: top('cat'),
+    top10Holdings: top('hol'),
+  };
+  return JSON.stringify(resumen);
+}
+
+function setupIA() {
+  const input = document.getElementById('iaQuestionInput');
+  const btn = document.getElementById('iaAskBtn');
+  const suggestions = document.getElementById('iaSuggestions');
+  if (!input || !btn || !suggestions) return;
+
+  IA_SUGGESTIONS.forEach(q => {
+    const chip = document.createElement('button');
+    chip.className = 'pill info';
+    chip.style.cssText = 'cursor:pointer;border:none;font-family:inherit';
+    chip.textContent = q;
+    chip.addEventListener('click', () => { input.value = q; askAI(q); });
+    suggestions.appendChild(chip);
+  });
+
+  const submit = () => {
+    const q = input.value.trim();
+    if (!q) return;
+    input.value = '';
+    askAI(q);
+  };
+  btn.addEventListener('click', submit);
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') submit(); });
+}
+
+async function askAI(question) {
+  const history = document.getElementById('iaChatHistory');
+  if (!history) return;
+
+  const qDiv = document.createElement('div');
+  qDiv.style.cssText = 'font-weight:700;color:var(--text)';
+  qDiv.textContent = question;
+  history.appendChild(qDiv);
+
+  const aDiv = document.createElement('div');
+  aDiv.style.cssText = 'background:var(--bg);border:1px solid var(--border-soft);border-radius:8px;padding:12px 14px;color:var(--text);white-space:pre-wrap;line-height:1.6';
+  aDiv.textContent = 'Pensando…';
+  history.appendChild(aDiv);
+  history.scrollTop = history.scrollHeight;
+
+  try {
+    const context = buildAIContext();
+    const res = await fetch(IA_WORKER_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question, context }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    aDiv.textContent = data.answer || '(sin respuesta)';
+  } catch (err) {
+    console.error(err);
+    aDiv.style.color = 'var(--danger)';
+    aDiv.textContent = 'No se pudo consultar al asistente: ' + err.message;
+  }
+  history.scrollTop = history.scrollHeight;
 }
