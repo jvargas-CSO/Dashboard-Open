@@ -2292,6 +2292,20 @@ const AI_TOOLS = [
       required: ['query'],
     },
   },
+  {
+    name: 'get_forecast',
+    description: 'Regresa el Forecast Neto (por vendedor × cliente × mes) cargado por separado del archivo de Data Comercial. Úsalo para responder sobre el forecast en sí, o para comparar "real vs forecast" — en ese caso llama también a get_totals o aggregate_by_dimension para lo real y compara los números tú mismo. Si no hay forecast cargado, regresa un aviso indicándolo (no inventes cifras).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        anio: { type: 'integer', description: 'Año del forecast (normalmente 2026)' },
+        eje: { type: 'string', description: 'Opcional: nombre exacto de un vendedor para acotar' },
+        cli: { type: 'string', description: 'Opcional: nombre exacto de un cliente para acotar' },
+        groupBy: { type: 'string', enum: ['eje', 'cli', 'mes', 'none'], description: 'Cómo agrupar: por vendedor, por cliente, por mes, o "none" para un solo total' },
+      },
+      required: ['anio', 'groupBy'],
+    },
+  },
 ];
 
 function aiFilteredData({ anio, mes, dimensionFilter } = {}) {
@@ -2359,10 +2373,37 @@ function aiToolSearch({ query, anio, limit }) {
   }));
 }
 
+function aiToolForecast({ anio, eje, cli, groupBy }) {
+  if (!anio) return { error: 'Falta anio' };
+  if (!Engine.forecast || !Engine.forecast.length) {
+    return { aviso: 'No hay ningún Forecast cargado en el dashboard actualmente.' };
+  }
+  let data = Engine.forecast.filter(f => f.anio === anio);
+  if (eje) data = data.filter(f => f.eje === eje);
+  if (cli) data = data.filter(f => f.cli === cli);
+  if (!data.length) return { aviso: 'No hay entradas de forecast para esos filtros.', forecastNetoTotal: 0 };
+
+  if (groupBy === 'eje' || groupBy === 'cli') {
+    const map = {};
+    data.forEach(f => { map[f[groupBy]] = (map[f[groupBy]] || 0) + f.fcNeto; });
+    return Object.entries(map)
+      .map(([key, fcNeto]) => ({ [groupBy]: key, forecastNeto: Math.round(fcNeto) }))
+      .sort((a, b) => b.forecastNeto - a.forecastNeto)
+      .slice(0, 30);
+  }
+  if (groupBy === 'mes') {
+    const arr = Array(12).fill(0);
+    data.forEach(f => { if (f.mes >= 1 && f.mes <= 12) arr[f.mes - 1] += f.fcNeto; });
+    return { anio, meses: MESES_FULL, forecastNetoMensual: arr.map(v => Math.round(v)) };
+  }
+  return { anio, forecastNetoTotal: Math.round(data.reduce((a, f) => a + f.fcNeto, 0)), entradas: data.length };
+}
+
 const AI_TOOL_HANDLERS = {
   aggregate_by_dimension: aiToolAggregate,
   monthly_series: aiToolMonthlySeries,
   get_totals: aiToolTotals,
+  get_forecast: aiToolForecast,
   search_lines: aiToolSearch,
 };
 
