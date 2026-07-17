@@ -1,15 +1,24 @@
 // Cloudflare Worker: proxy seguro entre el Dashboard Comercial Open y la API de Anthropic.
 // La ANTHROPIC_API_KEY vive como secret en Cloudflare (Settings > Variables and Secrets),
 // nunca en el código del dashboard ni en este archivo.
+//
+// Este Worker es deliberadamente "tonto": solo agrega la API key y el system prompt,
+// y reenvía { messages, tools } a la API de Claude tal cual, regresando la respuesta cruda.
+// El loop de tool use (ejecutar cada tool contra los datos cargados en el navegador y
+// volver a preguntar) vive en app.js, porque los datos del dashboard solo existen ahí.
 
 const ALLOWED_ORIGINS = [
   'https://jvargas-cso.github.io',
   'http://localhost:8934',
 ];
 
-const SYSTEM_PROMPT = `Eres un analista de datos comerciales para "Dashboard Comercial Open", una empresa de medios OOH (espectaculares, pantallas, vallas, transporte público, centros comerciales, etc.). Se te da un resumen de los datos de ventas actualmente filtrados en el dashboard, y debes responder preguntas del usuario sobre esos datos: tendencias, comparativos, quién vende más, dónde hay riesgo de concentración, estacionalidad, márgenes, etc.
+const SYSTEM_PROMPT = `Eres un analista de datos comerciales para "Dashboard Comercial Open", una empresa de medios OOH (espectaculares, pantallas, vallas, transporte público, centros comerciales, etc.).
 
-Responde en español, de forma directa y concisa, citando cifras concretas del resumen cuando existan. Si el resumen no trae la información necesaria para responder algo, dilo claramente en vez de inventar datos.`;
+No ves los datos directamente: tienes herramientas para consultarlos (agregaciones por dimensión, series mensuales, totales, búsqueda de líneas específicas). Usa las herramientas cuantas veces haga falta, encadenando varias si la pregunta lo requiere, antes de responder.
+
+Los datos que consultes ya respetan los filtros que el usuario tiene activos en el dashboard (año, vendedor, cliente, etc.) — no necesitas pedir eso, ya viene aplicado.
+
+Responde en español, de forma directa y concisa, citando cifras concretas. Si después de consultar las herramientas disponibles no encuentras la información pedida (por ejemplo, una columna que no existe en los datos), dilo claramente en vez de inventar.`;
 
 export default {
   async fetch(request, env) {
@@ -35,10 +44,10 @@ export default {
       return json({ error: 'JSON inválido' }, 400, corsHeaders);
     }
 
-    const question = (body.question || '').toString().slice(0, 2000).trim();
-    const context = (body.context || '').toString().slice(0, 30000);
-    if (!question) {
-      return json({ error: 'Falta la pregunta' }, 400, corsHeaders);
+    const messages = Array.isArray(body.messages) ? body.messages : [];
+    const tools = Array.isArray(body.tools) ? body.tools : [];
+    if (!messages.length) {
+      return json({ error: 'Falta messages' }, 400, corsHeaders);
     }
 
     const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
@@ -50,27 +59,22 @@ export default {
       },
       body: JSON.stringify({
         model: 'claude-sonnet-5',
-        max_tokens: 1024,
+        max_tokens: 1536,
         thinking: { type: 'disabled' },
         system: SYSTEM_PROMPT,
-        messages: [
-          { role: 'user', content: `DATOS ACTUALES DEL DASHBOARD (ya filtrados):\n${context}\n\nPREGUNTA: ${question}` },
-        ],
+        tools,
+        messages,
       }),
     });
 
+    const data = await anthropicRes.json();
     if (!anthropicRes.ok) {
-      const detail = await anthropicRes.text();
-      return json({ error: 'Error al consultar Claude', detail }, 502, corsHeaders);
+      return json({ error: data?.error?.message || 'Error al consultar Claude' }, 502, corsHeaders);
     }
 
-    const data = await anthropicRes.json();
-    const answer = (data.content || [])
-      .filter((b) => b.type === 'text')
-      .map((b) => b.text)
-      .join('\n');
-
-    return json({ answer }, 200, corsHeaders);
+    // Reenviamos la respuesta cruda de Claude (content, stop_reason, etc.) — el
+    // navegador decide si hay que ejecutar tool calls y volver a preguntar.
+    return json(data, 200, corsHeaders);
   },
 };
 

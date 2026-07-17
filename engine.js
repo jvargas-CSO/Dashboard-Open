@@ -38,6 +38,21 @@ const COL_MAP = {
   m2: ['Total m2', 'Total M2'],
   odv: ['ODV'],
   odc: ['ODC'],
+  // --- Ampliación: columnas adicionales del Excel para análisis más profundo ---
+  cm: ['CM'],
+  adv: ['ADV'],
+  financiamiento: ['Financiamiento'],
+  costoUnitProveedor: ['Costo unitario proveedor'],
+  totalTarifaCostos: ['Total tarifa de costos'],
+  incrementoVentaUnit: ['Incremento Venta Unitario $'],
+  pctROIAgencia: ['% \nROI Agencia', '% \n ROI Agencia'],
+  montoROIAgencia: ['Monto \nROI Agencia', 'Monto \n ROI Agencia'],
+  pctROIPersonal: ['%\nROI Personal', '%\n ROI Personal'],
+  montoROIPersonal: ['Monto\nROI Personal', 'Monto\n ROI Personal'],
+  pctComisionVendedor: ['%\nComision\nVendedor', '%\n Comision\n Vendedor'],
+  gastos: ['Gastos'],
+  utilidadTotalProyecto: ['Utilidad Total Proyecto'],
+  pctComisionPagar: ['% de Comisión a Pagar'],
 };
 
 // =========================================================================
@@ -442,6 +457,24 @@ function processDataWorkbook(workbook) {
         com: num(get('comisionVendedor')),
         comAdv: num(get('comisionADV')),
         m2: num(get('m2')),
+        // --- Ampliación ---
+        cm: (get('cm') || '').toString().trim(),
+        adv: titleCase(get('adv') || ''),
+        provRSF: (get('proveedorRSF') || '').toString().trim(),
+        fechaInicio: get('fechaInicio') || null,
+        fechaFin: get('fechaFin') || null,
+        financiamiento: (get('financiamiento') || '').toString().trim(),
+        costoUnitProveedor: num(get('costoUnitProveedor')),
+        totalTarifaCostos: num(get('totalTarifaCostos')),
+        incrementoVentaUnit: num(get('incrementoVentaUnit')),
+        pctROIAgencia: num(get('pctROIAgencia')),
+        montoROIAgencia: num(get('montoROIAgencia')),
+        pctROIPersonal: num(get('pctROIPersonal')),
+        montoROIPersonal: num(get('montoROIPersonal')),
+        pctComisionVendedor: num(get('pctComisionVendedor')),
+        gastos: num(get('gastos')),
+        utilidadTotalProyecto: num(get('utilidadTotalProyecto')),
+        pctComisionPagar: num(get('pctComisionPagar')),
       };
       records.push(rec);
     });
@@ -630,6 +663,23 @@ const Engine = {
     });
     t.margen = t.vn ? (t.ut/t.vn*100) : 0;
     return t;
+  },
+
+  // Agrupa por cualquier campo del registro y suma cualquier lista de métricas numéricas.
+  // Genérico (a diferencia de groupBy, que solo suma el set fijo de métricas del dashboard) —
+  // pensado para el asistente IA, que necesita poder pedir combinaciones dimensión×métrica arbitrarias.
+  aggregateBy(data, dimensionKey, metricKeys) {
+    const map = {};
+    data.forEach(r => {
+      const k = r[dimensionKey] || 'Sin definir';
+      if (!map[k]) {
+        map[k] = { key: k, n: 0 };
+        metricKeys.forEach(m => { map[k][m] = 0; });
+      }
+      map[k].n += 1;
+      metricKeys.forEach(m => { map[k][m] += (r[m] || 0); });
+    });
+    return Object.values(map);
   },
 
   groupBy(data, key) {

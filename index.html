@@ -73,14 +73,13 @@ body {
   position: relative;
 }
 .sb-logo {
-  width: 32px; height: 32px;
-  background: linear-gradient(135deg, var(--primary), var(--primary-light));
-  border-radius: 8px;
+  width: 34px; height: 34px;
+  border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
-  font-weight: 800; font-size: 16px; color: white;
-  box-shadow: 0 2px 8px rgba(217,102,44,0.25);
   flex-shrink: 0;
+  overflow: hidden;
 }
+.sb-logo img { width: 100%; height: 100%; object-fit: contain; }
 .sb-brand-text { overflow: hidden; transition: opacity var(--transition); }
 .sb-brand-text h1 { font-size: 14px; font-weight: 700; letter-spacing: -0.2px; white-space: nowrap; }
 .sb-brand-text p { font-size: 10px; color: var(--text-muted); margin-top: 1px; white-space: nowrap; }
@@ -311,6 +310,22 @@ body {
 .dropzone input[type=file] { display: none; }
 .dropzone-title { text-align: center; font-size: 24px; font-weight: 800; margin-bottom: 10px; }
 .dropzone-help { text-align: center; color: var(--text-muted); margin-bottom: 8px; font-size: 14px; }
+.login-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-soft);
+  border-radius: 16px;
+  box-shadow: var(--shadow-elev);
+  padding: 48px 44px 40px;
+  max-width: 420px;
+  width: 100%;
+  text-align: center;
+}
+.login-logo { max-width: 220px; width: 100%; height: auto; margin: 0 auto 6px; display: block; }
+.login-subtitle { font-size: 11px; font-weight: 700; letter-spacing: 1.4px; text-transform: uppercase; color: var(--text-dim); margin-bottom: 28px; }
+.login-divider { height: 1px; background: var(--border-soft); margin: 0 0 24px; }
+.login-card .dropzone-help { margin-bottom: 0; }
+.login-card .spinner { margin: 20px auto 0; }
+.login-card .dz-actions { margin-top: 22px; }
 .dz-loaded-name { color: var(--success); font-size: 12px; margin-top: 8px; word-break: break-all; }
 .dz-actions { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
 .btn-launch { background: var(--success); padding: 14px 32px; font-size: 16px; }
@@ -732,14 +747,18 @@ tbody tr:hover { background: var(--bg-card-hover); }
 
 <!-- Pantalla de estado inicial: login con Google + carga en vivo desde Drive -->
 <div class="dropzone" id="dropzone">
-  <div class="dropzone-title">📊 Dashboard Comercial Open</div>
-  <div class="dropzone-help" id="dzStatusText">Inicia sesión con tu cuenta de Google para cargar los datos.</div>
-  <div class="spinner" id="dzSpinner" style="display:none"></div>
-  <div class="dz-actions" id="dzSignInActions">
-    <button class="btn btn-launch" id="btnGoogleSignIn">Iniciar sesión con Google</button>
-  </div>
-  <div class="dz-actions" id="dzErrorActions" style="display:none">
-    <button class="btn" id="btnRetryDrive">↻ Reintentar</button>
+  <div class="login-card">
+    <img class="login-logo" src="assets/logo-open-full.png" alt="OPEN">
+    <div class="login-subtitle">Dashboard Comercial · Inteligencia de Ventas</div>
+    <div class="login-divider"></div>
+    <div class="dropzone-help" id="dzStatusText">Inicia sesión con tu cuenta de Google para cargar los datos.</div>
+    <div class="spinner" id="dzSpinner" style="display:none"></div>
+    <div class="dz-actions" id="dzSignInActions">
+      <button class="btn btn-launch" id="btnGoogleSignIn">Iniciar sesión con Google</button>
+    </div>
+    <div class="dz-actions" id="dzErrorActions" style="display:none">
+      <button class="btn" id="btnRetryDrive">↻ Reintentar</button>
+    </div>
   </div>
 </div>
 
@@ -752,7 +771,7 @@ tbody tr:hover { background: var(--bg-card-hover); }
 
 <aside class="sidebar" id="sidebar">
   <div class="sb-brand">
-    <div class="sb-logo">O</div>
+    <div class="sb-logo"><img src="assets/logo-open-icon.png" alt="OPEN"></div>
     <div class="sb-brand-text">
       <h1>Open</h1>
       <p>Dashboard Comercial</p>

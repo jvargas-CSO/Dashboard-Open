@@ -2231,36 +2231,146 @@ function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
-function buildAIContext() {
-  const data = Engine.facturable(Engine.applyFilters(filters));
-  const t = Engine.totalize(data);
-  const filtrosActivos = Object.entries(filters)
-    .filter(([k, v]) => k !== 'statusOpen' && v)
-    .map(([k, v]) => `${k}=${v}`);
-  const top = (key, n = 10) => Engine.groupBy(data, key)
-    .sort((a, b) => b.vb - a.vb)
-    .slice(0, n)
-    .map(g => ({ [key]: g.key, ventaBruta: Math.round(g.vb), ventaNeta: Math.round(g.vn), utilidad: Math.round(g.ut), margenPct: +g.margen.toFixed(1) }));
-
-  const resumen = {
-    filtrosActivosEnDashboard: filtrosActivos.length ? filtrosActivos : ['ninguno (se está viendo todo)'],
-    statusOpenIncluido: filters.statusOpen,
-    totales: {
-      ventaBruta: Math.round(t.vb),
-      ventaNeta: Math.round(t.vn),
-      utilidad: Math.round(t.ut),
-      margenPct: +t.margen.toFixed(1),
-      numeroDeLineas: t.n,
-      clientesUnicos: t.cli.size,
+// =========================================================================
+// Herramientas (tool use) que la IA puede invocar contra los datos ya
+// cargados en el navegador. El Worker solo hace de proxy hacia Claude —
+// la ejecución real de cada tool pasa aquí, con acceso directo a Engine.
+// =========================================================================
+const AI_TOOLS = [
+  {
+    name: 'aggregate_by_dimension',
+    description: 'Agrupa las líneas de venta (respetando los filtros actuales del dashboard) por una dimensión y suma las métricas pedidas. Úsalo para rankings, comparativos entre grupos, comisiones por vendedor/ADV, etc.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        dimension: { type: 'string', enum: ['eje','cli','hol','age','prov','provRSF','est','loc','med','cat','tp','tc','st','cc','adv','financiamiento'], description: 'eje=vendedor, cli=cliente, hol=holding, age=agencia, prov=proveedor comercial, provRSF=proveedor razón social, est=estado, loc=localidad, med=medio, cat=categoría, tp=tipo, tc=tipo de compra, st=status open, cc=canal (Directo/Agencia), adv=responsable de propuesta, financiamiento=si tuvo financiamiento' },
+        metrics: { type: 'array', items: { type: 'string', enum: ['vb','vn','ut','com','comAdv','cst','roi','m2','gastos','utilidadTotalProyecto','costoUnitProveedor','totalTarifaCostos','montoROIAgencia','montoROIPersonal'] }, description: 'vb=venta bruta, vn=venta neta, ut=utilidad por línea, com=comisión vendedor, comAdv=comisión ADV, cst=costos totales, roi=total ROIs, m2=metros cuadrados' },
+        anio: { type: 'integer', description: 'Opcional, año específico' },
+        mes: { type: 'integer', description: 'Opcional, mes 1-12' },
+        sortBy: { type: 'string', description: 'Métrica por la que ordenar (default: la primera de metrics)' },
+        sortDir: { type: 'string', enum: ['asc','desc'], description: 'default desc' },
+        limit: { type: 'integer', description: 'default 15, máximo 50' },
+      },
+      required: ['dimension', 'metrics'],
     },
-    ventaBrutaMensual_EneADic: Engine.monthly(data, 'vb').map(v => Math.round(v)),
-    forecastNetoMensual_EneADic: (filters.anio ? Engine.forecastMonthlyTotal(parseInt(filters.anio)) : Engine.forecastMonthlyTotal()).map(v => Math.round(v)),
-    top10Vendedores: top('eje'),
-    top10Clientes: top('cli'),
-    top10Categorias: top('cat'),
-    top10Holdings: top('hol'),
+  },
+  {
+    name: 'monthly_series',
+    description: 'Serie mensual (Enero-Diciembre) de una métrica para un año, sobre los datos filtrados. Úsalo para tendencias y estacionalidad.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        anio: { type: 'integer' },
+        metric: { type: 'string', enum: ['vb','vn','ut','com','comAdv','cst','roi'] },
+        dimensionFilter: { type: 'object', description: 'Opcional, ej. {"eje":"Ricardo Escalante"}' },
+      },
+      required: ['anio', 'metric'],
+    },
+  },
+  {
+    name: 'get_totals',
+    description: 'Totales generales (venta bruta, neta, utilidad, margen%, comisiones, # líneas, clientes únicos) de los datos filtrados, opcionalmente acotando por año/mes/dimensión.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        anio: { type: 'integer' },
+        mes: { type: 'integer' },
+        dimensionFilter: { type: 'object', description: 'Opcional, ej. {"cli":"Bacardí"}' },
+      },
+    },
+  },
+  {
+    name: 'search_lines',
+    description: 'Busca líneas de detalle por texto (cliente, vendedor, proveedor, campaña, localidad, CM, ADV) y regresa hasta 20 coincidencias con sus datos principales. Úsalo para preguntas puntuales sobre un registro específico.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string' },
+        anio: { type: 'integer' },
+        limit: { type: 'integer', description: 'default 20, máximo 50' },
+      },
+      required: ['query'],
+    },
+  },
+];
+
+function aiFilteredData({ anio, mes, dimensionFilter } = {}) {
+  const f = { ...filters };
+  if (anio) f.anio = String(anio);
+  if (mes) f.mes = String(mes);
+  let data = Engine.facturable(Engine.applyFilters(f));
+  if (dimensionFilter && typeof dimensionFilter === 'object') {
+    Object.entries(dimensionFilter).forEach(([k, v]) => {
+      data = data.filter(r => String(r[k]) === String(v));
+    });
+  }
+  return data;
+}
+
+function aiToolAggregate({ dimension, metrics, anio, mes, sortBy, sortDir, limit }) {
+  if (!dimension || !Array.isArray(metrics) || !metrics.length) return { error: 'Faltan dimension o metrics' };
+  const data = aiFilteredData({ anio, mes });
+  const groups = Engine.aggregateBy(data, dimension, metrics);
+  const sortKey = sortBy && metrics.includes(sortBy) ? sortBy : metrics[0];
+  const desc = sortDir !== 'asc';
+  groups.sort((a, b) => desc ? (b[sortKey] || 0) - (a[sortKey] || 0) : (a[sortKey] || 0) - (b[sortKey] || 0));
+  const lim = Math.min(limit || 15, 50);
+  return groups.slice(0, lim).map(g => {
+    const row = { [dimension]: g.key, lineas: g.n };
+    metrics.forEach(m => { row[m] = Math.round((g[m] || 0) * 100) / 100; });
+    if (metrics.includes('ut') && metrics.includes('vn') && g.vn) row.margenPct = +((g.ut / g.vn) * 100).toFixed(1);
+    return row;
+  });
+}
+
+function aiToolMonthlySeries({ anio, metric, dimensionFilter }) {
+  if (!anio || !metric) return { error: 'Faltan anio o metric' };
+  const data = aiFilteredData({ anio, dimensionFilter });
+  return { anio, metric, meses: MESES_FULL, valores: Engine.monthly(data, metric).map(v => Math.round(v)) };
+}
+
+function aiToolTotals({ anio, mes, dimensionFilter }) {
+  const data = aiFilteredData({ anio, mes, dimensionFilter });
+  const t = Engine.totalize(data);
+  return {
+    ventaBruta: Math.round(t.vb),
+    ventaNeta: Math.round(t.vn),
+    utilidad: Math.round(t.ut),
+    margenPct: +t.margen.toFixed(1),
+    comisionVendedor: Math.round(data.reduce((a, r) => a + (r.com || 0), 0)),
+    comisionADV: Math.round(data.reduce((a, r) => a + (r.comAdv || 0), 0)),
+    numeroDeLineas: t.n,
+    clientesUnicos: t.cli.size,
   };
-  return JSON.stringify(resumen);
+}
+
+function aiToolSearch({ query, anio, limit }) {
+  if (!query || !query.trim()) return { error: 'Falta query' };
+  const q = query.toLowerCase();
+  const data = aiFilteredData({ anio });
+  const lim = Math.min(limit || 20, 50);
+  const matches = data
+    .filter(r => ['cli', 'eje', 'prov', 'cmp', 'loc', 'cm', 'adv'].some(k => String(r[k] || '').toLowerCase().includes(q)))
+    .slice(0, lim);
+  return matches.map(r => ({
+    cm: r.cm, anio: r.anio, mes: r.mes, eje: r.eje, cli: r.cli, hol: r.hol, prov: r.prov,
+    cat: r.cat, loc: r.loc, vb: Math.round(r.vb), vn: Math.round(r.vn), ut: Math.round(r.ut),
+    com: Math.round(r.com), adv: r.adv, st: r.st,
+  }));
+}
+
+const AI_TOOL_HANDLERS = {
+  aggregate_by_dimension: aiToolAggregate,
+  monthly_series: aiToolMonthlySeries,
+  get_totals: aiToolTotals,
+  search_lines: aiToolSearch,
+};
+
+function runAITool(name, input) {
+  const handler = AI_TOOL_HANDLERS[name];
+  if (!handler) return { error: `Herramienta desconocida: ${name}` };
+  try { return handler(input || {}); }
+  catch (e) { return { error: e.message }; }
 }
 
 function setupIA() {
@@ -2303,16 +2413,42 @@ async function askAI(question) {
   history.appendChild(aDiv);
   history.scrollTop = history.scrollHeight;
 
+  const messages = [{ role: 'user', content: question }];
+  const MAX_TURNS = 6;
+
   try {
-    const context = buildAIContext();
-    const res = await fetch(IA_WORKER_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ question, context }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-    aDiv.textContent = data.answer || '(sin respuesta)';
+    for (let turn = 0; turn < MAX_TURNS; turn++) {
+      const res = await fetch(IA_WORKER_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages, tools: AI_TOOLS }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.type === 'error') {
+        throw new Error(data.error?.message || data.error || `HTTP ${res.status}`);
+      }
+
+      messages.push({ role: 'assistant', content: data.content });
+
+      if (data.stop_reason === 'tool_use') {
+        aDiv.textContent = 'Consultando datos…';
+        const toolResults = [];
+        for (const block of data.content) {
+          if (block.type === 'tool_use') {
+            const result = runAITool(block.name, block.input);
+            toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: JSON.stringify(result) });
+          }
+        }
+        messages.push({ role: 'user', content: toolResults });
+        continue;
+      }
+
+      const answer = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n');
+      aDiv.textContent = answer || '(sin respuesta)';
+      history.scrollTop = history.scrollHeight;
+      return;
+    }
+    aDiv.textContent = 'No pude terminar de responder (demasiadas consultas encadenadas). Intenta reformular la pregunta de forma más específica.';
   } catch (err) {
     console.error(err);
     aDiv.style.color = 'var(--danger)';
