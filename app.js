@@ -68,11 +68,11 @@ async function fetchWorkbookFromDrive(sheetId, { retried = false } = {}) {
 
 const filters = { anio:'', mes:'', emp:'', eje:'', est:'', loc:'', cat:'', hol:'', cli:'', tp:'', cc:'', statusOpen: ['Suma Forecast'] };
 let charts = {};
-let detSortKey = null, detSortDir = -1;
 let selectedVendedor = '';
 let acVendedor = '';
 let dataLoaded = false;
 let forecastLoaded = false;
+let iaAutoInsightsGenerated = false;
 
 // =========================================================================
 // INIT
@@ -169,6 +169,7 @@ async function loadFromDriveAndBoot({ silent = false } = {}) {
 }
 
 function updateHeaderInfo() {
+  iaAutoInsightsGenerated = false; // los datos cambiaron — regenerar hallazgos automáticos la próxima vez que se abra la pestaña IA
   document.getElementById('dataInfo').textContent = `${Engine.records.length.toLocaleString('es-MX')} registros · ${Engine.yearsAvailable.join(', ')}`;
   const fc = document.getElementById('fcInfo');
   fc.style.display = 'inline-flex';
@@ -298,6 +299,7 @@ function attachListeners() {
       // Close mobile sidebar
       document.getElementById('sidebar')?.classList.remove('mobile-open');
       render();
+      if (t.dataset.tab === 'ia') runIAAutoInsights();
     });
   });
   // Sidebar toggle (collapse)
@@ -313,14 +315,6 @@ function attachListeners() {
   const burger = document.getElementById('mobileBurger');
   if (burger) burger.addEventListener('click', () => {
     document.getElementById('sidebar').classList.toggle('mobile-open');
-  });
-  document.querySelectorAll('#tblDetalle th[data-sort]').forEach(th => {
-    th.addEventListener('click', () => {
-      const k = th.dataset.sort;
-      if (detSortKey === k) detSortDir = -detSortDir;
-      else { detSortKey = k; detSortDir = -1; }
-      renderDetalle();
-    });
   });
   document.getElementById('vendedorSel').addEventListener('change', e => {
     selectedVendedor = e.target.value;
@@ -462,7 +456,7 @@ function render() {
     case 'geografia': renderGeografia(); break;
     case 'estacionalidad': renderEstacionalidad(); break;
     case 'rentabilidad': renderRentabilidad(); break;
-    case 'detalle': renderDetalle(); break;
+    case 'proyeccion': renderProyeccion(); break;
   }
   // Post-render: inyectar botones de export PNG y wire search inputs
   requestAnimationFrame(() => {
@@ -507,6 +501,96 @@ function fmtTooltipDiff(real, forecast, ventaPrev) {
   let txt = `Real: ${fmtMoney(real)}\nForecast: ${fmtMoney(forecast)}\nDiff: ${sign}${fmtMoney(diff)}`;
   if (ventaPrev !== null && ventaPrev !== undefined) txt += `\nAño anterior: ${fmtMoney(ventaPrev)}`;
   return txt;
+}
+
+// =========================================================================
+// INSIGHTS AUTOMÁTICOS (Resumen) — lectura tipo dirección general/comercial
+// =========================================================================
+function buildResumenInsights({ fact, factPrev, t, tP, yActual, yPrev, showFC, fcBrutoTotal, comTotal, comTotalPrev }) {
+  const insights = [];
+
+  // 1. Proyección de cierre de año (real de meses con datos + forecast del resto)
+  if (showFC && fcBrutoTotal > 0) {
+    const roiPct = Engine.roiPctParaForecastBruto(yActual);
+    const fcBrutoMonthly = Engine.forecastMonthlyTotal(yActual).map(v => roiPct < 1 ? v / (1 - roiPct) : v);
+    const realVBMonthly = Engine.monthly(fact, 'vb');
+    const mesesConDatos = new Set(fact.filter(r => r.vb > 0).map(r => r.mes));
+    const cierre = realVBMonthly.reduce((sum, v, i) => sum + (mesesConDatos.has(i + 1) ? v : fcBrutoMonthly[i]), 0);
+    const pctVsForecast = cierre / fcBrutoTotal * 100;
+    insights.push({
+      level: pctVsForecast >= 100 ? 'success' : pctVsForecast >= 90 ? 'info' : 'warning',
+      text: `Proyección de cierre ${yActual} (real + forecast del resto del año): ${fmtMoneyShort(cierre)} en Venta Bruta — ${fmtPct(pctVsForecast)} del forecast anual (${fmtMoneyShort(fcBrutoTotal)}). Ver detalle mensual y forecast 2027 en la pestaña Proyección.`,
+    });
+  }
+
+  // 2. Concentración de cliente
+  if (t.vb > 0) {
+    const porCliente = Engine.groupBy(fact, 'cli').sort((a, b) => b.vb - a.vb);
+    if (porCliente.length) {
+      const top = porCliente[0];
+      const pct = top.vb / t.vb * 100;
+      if (pct >= 20) {
+        insights.push({ level: 'warning', text: `${top.key} representa ${fmtPct(pct)} de la venta bruta filtrada — alta concentración de riesgo en un solo cliente.` });
+      }
+    }
+  }
+
+  // 3. Margen YoY
+  if (tP.vn > 0 && t.vn > 0) {
+    const diff = t.margen - tP.margen;
+    if (Math.abs(diff) >= 2) {
+      insights.push({
+        level: diff >= 0 ? 'success' : 'warning',
+        text: `El margen ${diff >= 0 ? 'subió' : 'bajó'} de ${fmtPct(tP.margen)} en ${yPrev} a ${fmtPct(t.margen)} en ${yActual} (${diff >= 0 ? '+' : ''}${fmtPct(diff)} pts).`,
+      });
+    }
+  }
+
+  // 4. Vendedores por debajo del 80% de su forecast neto
+  if (showFC) {
+    const ejes = [...new Set(fact.map(r => r.eje))];
+    let bajos = 0;
+    ejes.forEach(eje => {
+      const realEje = fact.filter(r => r.eje === eje).reduce((a, r) => a + r.vn, 0);
+      const fcEje = Engine.forecast.filter(f => f.anio === yActual && f.eje === eje).reduce((a, f) => a + f.fcNeto, 0);
+      if (fcEje > 0 && realEje / fcEje < 0.8) bajos++;
+    });
+    if (bajos > 0) {
+      insights.push({ level: 'warning', text: `${bajos} vendedor${bajos === 1 ? '' : 'es'} está${bajos === 1 ? '' : 'n'} por debajo del 80% de su forecast neto acumulado. Ver ranking en Estrategia.` });
+    }
+  }
+
+  // 5. Comisión como % de venta neta, comparado contra el año anterior
+  if (t.vn > 0 && tP.vn > 0) {
+    const comPct = comTotal / t.vn * 100;
+    const comPctPrev = comTotalPrev / tP.vn * 100;
+    if (comPctPrev > 0 && (comPct - comPctPrev) >= 1) {
+      insights.push({ level: 'warning', text: `Las comisiones pasaron de ${fmtPct(comPctPrev)} a ${fmtPct(comPct)} de la venta neta vs ${yPrev} — costo de venta subiendo.` });
+    }
+  }
+
+  // 6. Retención de clientes
+  if (factPrev.length) {
+    const clientesPrev = new Set(factPrev.map(r => r.cli));
+    const clientesActual = new Set(fact.map(r => r.cli));
+    const porClientePrev = Engine.groupBy(factPrev, 'cli').filter(g => !clientesActual.has(g.key)).sort((a, b) => b.vb - a.vb);
+    if (porClientePrev.length) {
+      const n = porClientePrev.length;
+      insights.push({ level: 'warning', text: `${n} cliente${n === 1 ? '' : 's'} activo${n === 1 ? '' : 's'} en ${yPrev} no ha${n === 1 ? '' : 'n'} comprado en ${yActual} (ej. ${porClientePrev.slice(0, 3).map(g => g.key).join(', ')}). Ver detalle en Estrategia.` });
+    }
+  }
+
+  if (!insights.length) {
+    insights.push({ level: 'info', text: 'Sin alertas relevantes con los filtros actuales.' });
+  }
+  return insights;
+}
+
+function renderResumenInsights(insights) {
+  const el = document.getElementById('resumenInsights');
+  if (!el) return;
+  const icon = { info: '💡', warning: '⚠️', danger: '🚨', success: '✅' };
+  el.innerHTML = insights.map(i => `<div class="alert ${i.level}">${icon[i.level] || '💡'} ${i.text}</div>`).join('');
 }
 
 // =========================================================================
@@ -584,12 +668,25 @@ function renderResumen() {
       </div>`;
   }
 
+  // Comisiones (vendedor + ADV) — sin comparativo de forecast (no existe forecast de comisión),
+  // solo vs año anterior. fc=0 hace que buildCmp muestre "Sin dato" en esa fila.
+  const comTotal = t.com + t.comAdv;
+  const comTotalPrev = tP.com + tP.comAdv;
+  const realCom = Engine.monthly(fact, 'com').map((v, i) => v + (Engine.monthly(fact, 'comAdv')[i] || 0));
+  const comPct = t.vn ? (comTotal / t.vn * 100) : 0;
+
   const kpisHTML = [
     buildKPIBig('Venta Bruta', t.vb, fcBrutoTotal, tP.vb, '#d9662c', realVB, `${fmtNum(t.n)} líneas`),
     buildKPIBig('Venta Neta (sin ROI)', t.vn, fcNetoTotal, tP.vn, '#2563eb', realVN, `ROI ${fmtPct(t.vb?t.roi/t.vb*100:0)}`),
     buildKPIBig('Utilidad por Línea', t.ut, fcUtilTotal, tP.ut, '#1f9d6e', realUT, `Margen ${fmtPct(t.margen)}`),
+    buildKPIBig('Comisiones (Vendedor + ADV)', comTotal, 0, comTotalPrev, '#db2777', realCom, `${fmtPct(comPct)} de venta neta`),
   ].join('');
   document.getElementById('kpis').innerHTML = kpisHTML;
+
+  // === Insights automáticos (perspectiva dirección) ===
+  renderResumenInsights(buildResumenInsights({
+    fact, factPrev, t, tP, yActual, yPrev, showFC, fcBrutoTotal, comTotal, comTotalPrev,
+  }));
 
   // === 3 Gráficas Lineales: Real vs Forecast vs Año Pasado ===
   const buildLineDatasets = (real, fc, prev) => {
@@ -1317,6 +1414,68 @@ function renderEstrategia() {
   });
   html5 += '</tbody></table></div>';
   document.getElementById('combinacionesTop').innerHTML = html5;
+
+  // === Alcance de vendedores vs su Forecast (para 1:1s de accountability) ===
+  // yActual/yPrev ya se calcularon arriba para la tabla de Desempeño por Cuenta.
+  let htmlAlcance;
+  if (forecastLoaded) {
+    const alcanceEjes = ejes.map(e => {
+      const fcVN = Engine.forecast.filter(f => f.anio === yActual && f.eje === e.key).reduce((a, f) => a + f.fcNeto, 0);
+      return { eje: e.key, realVN: e.vn, fcVN, pct: fcVN ? (e.vn / fcVN * 100) : null };
+    }).filter(a => a.fcVN > 0).sort((a, b) => a.pct - b.pct);
+    if (alcanceEjes.length) {
+      htmlAlcance = '<div class="table-wrap"><table><thead class="top"><tr><th>Vendedor</th><th class="num">Venta Neta Real</th><th class="num">Forecast Neto</th><th class="num">% Alcance</th></tr></thead><tbody>';
+      alcanceEjes.forEach(a => {
+        const cls = a.pct >= 100 ? 'alc-good' : a.pct >= 80 ? 'alc-warn' : 'alc-bad';
+        htmlAlcance += `<tr><td><b>${a.eje}</b></td><td class="num">${fmtMoney(a.realVN)}</td><td class="num">${fmtMoney(a.fcVN)}</td><td class="num ${cls}">${fmtPct(a.pct)}</td></tr>`;
+      });
+      htmlAlcance += '</tbody></table></div>';
+    } else {
+      htmlAlcance = '<div style="padding:16px;color:var(--text-muted);text-align:center">Ningún vendedor filtrado tiene Forecast cargado para este año.</div>';
+    }
+  } else {
+    htmlAlcance = '<div style="padding:16px;color:var(--text-muted);text-align:center">Sube o actualiza un Forecast para ver el alcance por vendedor.</div>';
+  }
+  document.getElementById('alcanceVendedorForecast').innerHTML = htmlAlcance;
+
+  // === Retención de clientes año a año ===
+  const factPrev = Engine.facturable(Engine.applyFilters({...filters, anio: yPrev}, {ignoreYear:false}));
+  const clientesActualSet = new Set(fact.map(r => r.cli));
+  const clientesPrevSet = new Set(factPrev.map(r => r.cli));
+  const perdidos = Engine.groupBy(factPrev, 'cli').filter(g => !clientesActualSet.has(g.key)).sort((a,b) => b.vb - a.vb);
+  const nuevosCli = Engine.groupBy(fact, 'cli').filter(g => !clientesPrevSet.has(g.key)).sort((a,b) => b.vb - a.vb);
+  let htmlRet = `<div class="alert ${perdidos.length ? 'warning' : 'success'}">Comparando clientes activos en ${yPrev} vs ${yActual}: <b>${perdidos.length} perdido${perdidos.length===1?'':'s'}</b>, <b>${nuevosCli.length} nuevo${nuevosCli.length===1?'':'s'}</b>.</div>`;
+  htmlRet += '<div class="cards-grid" style="grid-template-columns:1fr 1fr">';
+  htmlRet += `<div><h4 style="margin-bottom:8px;color:var(--danger)">Perdidos (compraron en ${yPrev}, nada en ${yActual})</h4>`;
+  htmlRet += `<div class="table-wrap" style="max-height:320px"><table><thead class="top"><tr><th>Cliente</th><th class="num">Venta ${yPrev}</th></tr></thead><tbody>`;
+  perdidos.slice(0, 30).forEach(c => { htmlRet += `<tr><td>${c.key}</td><td class="num">${fmtMoney(c.vb)}</td></tr>`; });
+  if (!perdidos.length) htmlRet += '<tr><td colspan="2" style="text-align:center;color:var(--text-muted)">Ninguno</td></tr>';
+  htmlRet += '</tbody></table></div></div>';
+  htmlRet += `<div><h4 style="margin-bottom:8px;color:var(--success)">Nuevos (compraron en ${yActual}, nada en ${yPrev})</h4>`;
+  htmlRet += `<div class="table-wrap" style="max-height:320px"><table><thead class="top"><tr><th>Cliente</th><th class="num">Venta ${yActual}</th></tr></thead><tbody>`;
+  nuevosCli.slice(0, 30).forEach(c => { htmlRet += `<tr><td>${c.key}</td><td class="num">${fmtMoney(c.vb)}</td></tr>`; });
+  if (!nuevosCli.length) htmlRet += '<tr><td colspan="2" style="text-align:center;color:var(--text-muted)">Ninguno</td></tr>';
+  htmlRet += '</tbody></table></div></div></div>';
+  document.getElementById('retencionClientes').innerHTML = htmlRet;
+
+  // === Campañas que vencen este mes (calendario real) ===
+  const hoy = new Date();
+  const porVencer = fact.filter(r => {
+    if (!r.fechaFin) return false;
+    const f = new Date(r.fechaFin);
+    return !isNaN(f) && f.getMonth() === hoy.getMonth() && f.getFullYear() === hoy.getFullYear();
+  }).sort((a,b) => new Date(a.fechaFin) - new Date(b.fechaFin));
+  let htmlVence;
+  if (!porVencer.length) {
+    htmlVence = '<div style="padding:16px;color:var(--text-muted);text-align:center">Sin campañas con Fecha Fin en el mes actual dentro de lo filtrado.</div>';
+  } else {
+    htmlVence = '<div class="table-wrap"><table><thead class="top"><tr><th>Cliente</th><th>Vendedor</th><th>Categoría</th><th>Fecha Fin</th><th class="num">Venta Bruta</th></tr></thead><tbody>';
+    porVencer.forEach(r => {
+      htmlVence += `<tr><td><b>${r.cli}</b></td><td>${r.eje}</td><td>${r.cat}</td><td>${new Date(r.fechaFin).toLocaleDateString('es-MX')}</td><td class="num">${fmtMoney(r.vb)}</td></tr>`;
+    });
+    htmlVence += '</tbody></table></div>';
+  }
+  document.getElementById('campanasPorVencer').innerHTML = htmlVence;
 }
 
 function buildHeatmap(data, key, valKey, opts={}) {
@@ -1389,6 +1548,157 @@ function buildHeatmapComparativo(key, valKey, topN=10) {
   });
   html += '</tbody></table></div>';
   return html;
+}
+
+// =========================================================================
+// PROYECCIÓN — cierre 2026 + forecast 2027
+// Método 1 (principal): descomposición estacional + tendencia interanual.
+//   cierre 2026 = real de meses transcurridos + forecast cargado del resto.
+//   crecimiento = promedio de crecimiento mes a mes (2026 estimado vs 2025 real).
+//   2027 = cierre 2026 de cada mes × (1 + crecimiento), preservando la forma estacional.
+//   El rango conservador/optimista usa el mínimo/máximo de esos crecimientos mensuales
+//   en vez de una sola cifra, porque con solo 2 años de historia una sola tasa sería
+//   una falsa precisión.
+// Método 2 (contraste): regresión lineal simple sobre los 24 meses (2025+2026),
+//   extrapolada a 2027. Ignora estacionalidad — es solo un cross-check de tendencia pura.
+// =========================================================================
+function projGetYearMonthly(anio, valKey) {
+  const data = Engine.facturable(Engine.applyFilters({ ...filters, anio }, { ignoreYear: false }));
+  return Engine.monthly(data, valKey);
+}
+
+function projEstimateCierre(anio, valKey) {
+  const data = Engine.facturable(Engine.applyFilters({ ...filters, anio }, { ignoreYear: false }));
+  const real = Engine.monthly(data, valKey);
+  const mesesConDatos = new Set(data.filter(r => r.vb > 0).map(r => r.mes));
+  if (!forecastLoaded) return real;
+  let fcMonthly;
+  if (valKey === 'vb') {
+    const roiPct = Engine.roiPctParaForecastBruto(anio);
+    fcMonthly = Engine.forecastMonthlyTotal(anio).map(v => roiPct < 1 ? v / (1 - roiPct) : v);
+  } else if (valKey === 'ut') {
+    fcMonthly = Engine.forecastMonthlyTotal(anio).map(v => v * MARGEN_OBJETIVO);
+  } else {
+    fcMonthly = Engine.forecastMonthlyTotal(anio);
+  }
+  return real.map((v, i) => mesesConDatos.has(i + 1) ? v : fcMonthly[i]);
+}
+
+function projLinearRegressionAnnualTotal(series24) {
+  const n = series24.length;
+  const xMean = (n - 1) / 2;
+  const yMean = series24.reduce((a, b) => a + b, 0) / n;
+  let num = 0, den = 0;
+  series24.forEach((y, x) => { num += (x - xMean) * (y - yMean); den += (x - xMean) ** 2; });
+  const slope = den ? num / den : 0;
+  const intercept = yMean - slope * xMean;
+  let total = 0;
+  for (let x = n; x < n + 12; x++) total += Math.max(0, intercept + slope * x);
+  return total;
+}
+
+function projBuildForecast(valKey) {
+  const real25 = projGetYearMonthly(2025, valKey);
+  const cierre26 = projEstimateCierre(2026, valKey);
+  const total25 = real25.reduce((a, b) => a + b, 0);
+  const total26 = cierre26.reduce((a, b) => a + b, 0);
+
+  const monthlyGrowth = cierre26.map((v, i) => real25[i] > 0 ? (v / real25[i] - 1) : null).filter(g => g !== null);
+  const avgGrowth = monthlyGrowth.length ? monthlyGrowth.reduce((a, b) => a + b, 0) / monthlyGrowth.length : 0;
+  const minGrowth = monthlyGrowth.length ? Math.min(...monthlyGrowth) : 0;
+  const maxGrowth = monthlyGrowth.length ? Math.max(...monthlyGrowth) : 0;
+
+  const proj2027base = cierre26.map(v => Math.max(0, v * (1 + avgGrowth)));
+  const proj2027cons = cierre26.map(v => Math.max(0, v * (1 + minGrowth)));
+  const proj2027opt = cierre26.map(v => Math.max(0, v * (1 + maxGrowth)));
+
+  return {
+    real25, cierre26, total25, total26, avgGrowth, minGrowth, maxGrowth,
+    proj2027base, proj2027cons, proj2027opt,
+    total2027base: proj2027base.reduce((a, b) => a + b, 0),
+    total2027cons: proj2027cons.reduce((a, b) => a + b, 0),
+    total2027opt: proj2027opt.reduce((a, b) => a + b, 0),
+    linReg2027: projLinearRegressionAnnualTotal([...real25, ...cierre26]),
+  };
+}
+
+function renderProyeccion() {
+  const vb = projBuildForecast('vb');
+  const vn = projBuildForecast('vn');
+  const ut = projBuildForecast('ut');
+
+  const fcAnual = (valKey) => {
+    if (!forecastLoaded) return 0;
+    const fcNeto = Engine.forecastMonthlyTotal(2026).reduce((a, b) => a + b, 0);
+    if (valKey === 'vn') return fcNeto;
+    if (valKey === 'ut') return fcNeto * MARGEN_OBJETIVO;
+    const roiPct = Engine.roiPctParaForecastBruto(2026);
+    return roiPct < 1 ? fcNeto / (1 - roiPct) : fcNeto;
+  };
+
+  const buildCierreKPI = (label, obj, color, fcTotal) => {
+    const pctFc = fcTotal ? (obj.total26 / fcTotal * 100) : null;
+    const yoy = obj.total25 ? (obj.total26 - obj.total25) / obj.total25 * 100 : null;
+    return `
+      <div class="kpi-big" style="--accent:${color}">
+        <div class="kpi-big-head"><div class="kpi-big-label">${label}</div></div>
+        <div class="kpi-big-value">${fmtMoneyShort(obj.total26)}</div>
+        <svg class="kpi-big-spark" viewBox="0 0 200 36" preserveAspectRatio="none">${sparklinePath(obj.cierre26, color, 200, 36)}</svg>
+        <div class="kpi-big-compare">
+          <div class="kpi-cmp"><div class="kpi-cmp-label">% del Forecast anual</div><div class="kpi-cmp-pct ${pctFc===null?'muted':pctFc>=100?'pos':pctFc>=90?'':'neg'}">${pctFc===null?'—':fmtPct(pctFc)}</div></div>
+          <div class="kpi-cmp"><div class="kpi-cmp-label">vs 2025</div><div class="kpi-cmp-pct ${yoy===null?'muted':yoy>=0?'pos':'neg'}">${yoy===null?'—':(yoy>=0?'+':'')+fmtPct(yoy)}</div></div>
+        </div>
+      </div>`;
+  };
+  document.getElementById('projKpisCierre').innerHTML = [
+    buildCierreKPI('Venta Bruta', vb, '#d9662c', fcAnual('vb')),
+    buildCierreKPI('Venta Neta', vn, '#2563eb', fcAnual('vn')),
+    buildCierreKPI('Utilidad', ut, '#1f9d6e', fcAnual('ut')),
+  ].join('');
+
+  const build2027KPI = (label, obj, color) => `
+    <div class="kpi-big" style="--accent:${color}">
+      <div class="kpi-big-head"><div class="kpi-big-label">${label} · Forecast 2027 (base)</div></div>
+      <div class="kpi-big-value">${fmtMoneyShort(obj.total2027base)}</div>
+      <svg class="kpi-big-spark" viewBox="0 0 200 36" preserveAspectRatio="none">${sparklinePath(obj.proj2027base, color, 200, 36)}</svg>
+      <div class="kpi-big-compare">
+        <div class="kpi-cmp"><div class="kpi-cmp-label">Conservador</div><div class="kpi-cmp-pct neg">${fmtMoneyShort(obj.total2027cons)}</div></div>
+        <div class="kpi-cmp"><div class="kpi-cmp-label">Optimista</div><div class="kpi-cmp-pct pos">${fmtMoneyShort(obj.total2027opt)}</div></div>
+      </div>
+    </div>`;
+  document.getElementById('projKpis2027').innerHTML = [
+    build2027KPI('Venta Bruta', vb, '#d9662c'),
+    build2027KPI('Venta Neta', vn, '#2563eb'),
+    build2027KPI('Utilidad', ut, '#1f9d6e'),
+  ].join('');
+
+  const buildProjChart = (canvasId, obj) => {
+    drawChart(canvasId, {
+      type: 'line',
+      data: {
+        labels: MESES,
+        datasets: [
+          { label: '2025 Real', data: obj.real25, borderColor: '#6b7280', backgroundColor: 'transparent', tension: 0.35, borderWidth: 2, pointRadius: 3, fill: false },
+          { label: '2026 (Real + Forecast)', data: obj.cierre26, borderColor: '#d9662c', backgroundColor: 'rgba(217,102,44,0.1)', tension: 0.35, borderWidth: 3, pointRadius: 4, fill: true },
+          { label: '2027 Proyección (base)', data: obj.proj2027base, borderColor: '#7c3aed', backgroundColor: 'transparent', tension: 0.35, borderWidth: 2.5, borderDash: [6, 4], pointRadius: 3, fill: false },
+        ],
+      },
+      options: lineOpts({ money: true }),
+    });
+  };
+  buildProjChart('ch-projVB', vb);
+  buildProjChart('ch-projUT', ut);
+
+  const rowLinReg = (label, obj) => {
+    const diff = obj.total2027base ? (obj.linReg2027 - obj.total2027base) / obj.total2027base * 100 : 0;
+    return `<tr><td><b>${label}</b></td><td class="num">${fmtMoney(obj.total2027base)}</td><td class="num">${fmtMoney(obj.linReg2027)}</td><td class="num ${diff>=0?'pos':'neg'}">${diff>=0?'+':''}${fmtPct(diff)}</td></tr>`;
+  };
+  document.getElementById('projLinReg').innerHTML = `
+    <div class="table-wrap"><table><thead class="top"><tr><th>Métrica</th><th class="num">Método 1 · Estacional + Tendencia</th><th class="num">Método 2 · Regresión lineal</th><th class="num">Diferencia</th></tr></thead><tbody>
+      ${rowLinReg('Venta Bruta', vb)}
+      ${rowLinReg('Venta Neta', vn)}
+      ${rowLinReg('Utilidad', ut)}
+    </tbody></table></div>`;
 }
 
 // =========================================================================
@@ -2006,30 +2316,6 @@ function renderRentabilidad() {
 }
 
 // =========================================================================
-// DETALLE
-// =========================================================================
-function renderDetalle() {
-  let data = Engine.applyFilters(filters);
-  if (detSortKey) {
-    data = [...data].sort((a,b) => {
-      let av = a[detSortKey], bv = b[detSortKey];
-      if (detSortKey === 'mg') { av = a.vn?a.ut/a.vn*100:0; bv = b.vn?b.ut/b.vn*100:0; }
-      if (typeof av === 'number' || typeof bv === 'number') return ((av||0) - (bv||0)) * detSortDir;
-      return String(av).localeCompare(String(bv), 'es') * detSortDir;
-    });
-  }
-  document.getElementById('detCount').textContent = data.length.toLocaleString('es-MX') + ' líneas';
-  const limit = data.slice(0, 1500);
-  let html = limit.map(r => {
-    const mg = r.vn ? r.ut/r.vn*100 : 0;
-    const cls = mg>=30?'alc-good':mg>=15?'alc-warn':mg<0?'alc-bad':'';
-    return `<tr><td>${r.anio}</td><td>${MESES[r.mes-1]||''}</td><td>${r.emp}</td><td>${r.eje}</td><td>${r.cli}</td><td>${r.hol}</td><td>${r.age}</td><td>${r.est}</td><td>${r.loc}</td><td><span class="pill info">${r.cat}</span></td><td>${r.med}</td><td>${r.sop}</td><td><span class="pill ${r.tp==='Propio'?'success':'info'}">${r.tp}</span></td><td class="num">${fmtMoney(r.vb)}</td><td class="num">${fmtMoney(r.vn)}</td><td class="num pos">${fmtMoney(r.ut)}</td><td class="num ${cls}">${fmtPct(mg)}</td></tr>`;
-  }).join('');
-  if (data.length > 1500) html += `<tr><td colspan="17" style="text-align:center;color:var(--text-muted);padding:16px">Mostrando 1,500 de ${data.length.toLocaleString('es-MX')}.</td></tr>`;
-  document.getElementById('tbl-det').innerHTML = html;
-}
-
-// =========================================================================
 // CHART HELPERS
 // =========================================================================
 function drawChart(id, cfg) {
@@ -2412,6 +2698,31 @@ function runAITool(name, input) {
   if (!handler) return { error: `Herramienta desconocida: ${name}` };
   try { return handler(input || {}); }
   catch (e) { return { error: e.message }; }
+}
+
+const AI_AUTO_QUESTIONS = [
+  '¿Cómo va el negocio este año? Dame un resumen ejecutivo comparando venta, margen y comisión vs el forecast y vs el año pasado.',
+  '¿Qué riesgos de concentración de cliente o de vendedor debo tener en cuenta ahora mismo?',
+  '¿Qué vendedores están más atrasados vs su forecast, y qué tanto?',
+];
+
+// Al abrir la pestaña IA por primera vez desde que se cargaron/actualizaron los datos,
+// dispara automáticamente 2-3 preguntas clave para que el director no tenga que saber qué preguntar.
+async function runIAAutoInsights() {
+  if (iaAutoInsightsGenerated || !dataLoaded) return;
+  iaAutoInsightsGenerated = true;
+  const history = document.getElementById('iaChatHistory');
+  if (!history) return;
+  const heading = document.createElement('div');
+  heading.style.cssText = 'font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-dim);margin-bottom:-4px';
+  heading.textContent = 'Hallazgos automáticos al abrir';
+  history.appendChild(heading);
+  for (const q of AI_AUTO_QUESTIONS) {
+    await askAI(q);
+  }
+  const divider = document.createElement('div');
+  divider.style.cssText = 'height:1px;background:var(--border-soft);margin:4px 0';
+  history.appendChild(divider);
 }
 
 function setupIA() {

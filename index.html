@@ -351,6 +351,15 @@ body {
   color: var(--text-muted);
   font-weight: 600;
 }
+.filter-help {
+  display: inline-block;
+  text-transform: none;
+  color: var(--text-dim);
+  cursor: help;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+.filter-help:hover { color: var(--primary); }
 .filter-group select, .filter-group input {
   background: var(--bg);
   border: 1px solid var(--border);
@@ -665,6 +674,9 @@ tbody tr:hover { background: var(--bg-card-hover); }
 .alert.info { background: rgba(37,99,235,0.1); border-color: rgba(37,99,235,0.3); }
 .alert.warning { background: rgba(180,83,9,0.1); border-color: rgba(180,83,9,0.3); }
 .alert.danger { background: rgba(220,71,71,0.1); border-color: rgba(220,71,71,0.3); }
+.alert.success { background: rgba(31,157,110,0.1); border-color: rgba(31,157,110,0.3); }
+.resumen-insights .alert { margin-bottom: 8px; }
+.resumen-insights .alert:last-child { margin-bottom: 16px; }
 
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: var(--bg); }
@@ -810,6 +822,10 @@ tbody tr:hover { background: var(--bg-card-hover); }
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
         <span class="nav-item-text">Estrategia</span>
       </button>
+      <button class="nav-item" data-tab="proyeccion">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-6"/><path d="M15 7h4v4" stroke-dasharray="2 2"/></svg>
+        <span class="nav-item-text">Proyección</span>
+      </button>
     </div>
     <div class="nav-group">
       <div class="nav-group-title">Comercial</div>
@@ -840,13 +856,6 @@ tbody tr:hover { background: var(--bg-card-hover); }
       <button class="nav-item" data-tab="rentabilidad">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
         <span class="nav-item-text">Rentabilidad</span>
-      </button>
-    </div>
-    <div class="nav-group">
-      <div class="nav-group-title">Datos</div>
-      <button class="nav-item" data-tab="detalle">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
-        <span class="nav-item-text">Detalle líneas</span>
       </button>
     </div>
     <div class="nav-group">
@@ -896,7 +905,7 @@ tbody tr:hover { background: var(--bg-card-hover); }
   <div class="filter-group"><label>Tipo</label><select id="f-tp"><option value="">Todos</option></select></div>
   <div class="filter-group"><label>Canal</label><select id="f-cc"><option value="">Todos</option><option value="Directo">Directo</option><option value="Agencia">Agencia</option></select></div>
   <div class="filter-group">
-    <label>Status OPEN</label>
+    <label>Status OPEN <span class="filter-help" title="Controla qué líneas cuentan como venta real en todo el dashboard. 'Suma Forecast' (el default) = líneas facturables normales, excluye canceladas e intercambios/canjes. Actívalo con más opciones solo si necesitas incluir canjes o ver líneas canceladas — normalmente no hace falta tocarlo.">ⓘ</span></label>
     <div class="ms-wrap" id="msStatus">
       <button type="button" class="ms-trigger" id="msStatusTrigger">Suma Forecast</button>
       <div class="ms-panel" id="msStatusPanel"></div>
@@ -906,6 +915,7 @@ tbody tr:hover { background: var(--bg-card-hover); }
 
 <main class="content">
   <section class="section active" id="sec-resumen">
+    <div class="resumen-insights" id="resumenInsights"></div>
     <div class="kpi-grid kpi-grid-big" id="kpis"></div>
     <div class="cards-grid">
       <div class="card full">
@@ -1009,6 +1019,18 @@ tbody tr:hover { background: var(--bg-card-hover); }
         <div id="concentracionVendedor"></div>
       </div>
       <div class="card full">
+        <div class="card-header"><div class="card-title">🎯 Alcance vs Forecast por vendedor</div><div class="card-meta">Ordenado de menor a mayor % de alcance — para 1:1s</div></div>
+        <div id="alcanceVendedorForecast"></div>
+      </div>
+      <div class="card full">
+        <div class="card-header"><div class="card-title">🔄 Retención de clientes año a año</div><div class="card-meta">Clientes perdidos y nuevos vs el año anterior</div></div>
+        <div id="retencionClientes"></div>
+      </div>
+      <div class="card full">
+        <div class="card-header"><div class="card-title">📆 Campañas que vencen este mes</div><div class="card-meta">Según Fecha Fin — oportunidad de renovación proactiva</div></div>
+        <div id="campanasPorVencer"></div>
+      </div>
+      <div class="card full">
         <div class="card-header"><div class="card-title">📋 Desempeño por Cuenta</div><div class="card-meta">Vista detallada por cliente: comparativo YoY, mix de categorías, alcance, status</div></div>
         <div id="desempenoCuenta"></div>
       </div>
@@ -1028,6 +1050,34 @@ tbody tr:hover { background: var(--bg-card-hover); }
         <div class="card-header"><div class="card-title">⭐ Combinaciones ganadoras (Cliente × Categoría × Localidad)</div></div>
         <div id="combinacionesTop"></div>
       </div>
+    </div>
+  </section>
+
+  <section class="section" id="sec-proyeccion">
+    <div class="alert info">📈 <b>Estimación estadística</b>, no un compromiso comercial. Método: descomposición estacional + tendencia interanual sobre 2025-2026 (mismo criterio de filtros que el resto del dashboard, ignora el filtro de Año). Se muestra un segundo método (regresión lineal) como contraste.</div>
+    <div class="section-header">
+      <div class="section-title">Cierre estimado 2026</div>
+      <div class="section-subtitle">Real de los meses transcurridos + Forecast cargado para el resto del año</div>
+    </div>
+    <div class="kpi-grid kpi-grid-big" id="projKpisCierre"></div>
+    <div class="cards-grid">
+      <div class="card full">
+        <div class="card-header"><div class="card-title">Venta Bruta mensual · 2025 vs 2026 (real+forecast) vs Proyección 2027</div></div>
+        <div class="chart-container"><canvas id="ch-projVB"></canvas></div>
+      </div>
+      <div class="card full">
+        <div class="card-header"><div class="card-title">Utilidad mensual · 2025 vs 2026 (real+forecast) vs Proyección 2027</div></div>
+        <div class="chart-container"><canvas id="ch-projUT"></canvas></div>
+      </div>
+    </div>
+    <div class="section-header" style="margin-top:8px">
+      <div class="section-title">Forecast 2027</div>
+      <div class="section-subtitle">Rango conservador–optimista basado en la variabilidad de crecimiento mensual observada</div>
+    </div>
+    <div class="kpi-grid kpi-grid-big" id="projKpis2027"></div>
+    <div class="card full" style="margin-top:14px">
+      <div class="card-header"><div class="card-title">🔬 Contraste de métodos</div><div class="card-meta">Método 1 (estacional + tendencia) vs Método 2 (regresión lineal simple)</div></div>
+      <div id="projLinReg"></div>
     </div>
   </section>
 
@@ -1232,27 +1282,6 @@ tbody tr:hover { background: var(--bg-card-hover); }
       <div class="card">
         <div class="card-header"><div class="card-title">Líneas con margen bajo o negativo</div></div>
         <div class="table-wrap" style="max-height:380px"><table class="table-default"><thead><tr><th>Cliente</th><th>Vendedor</th><th>Categoría</th><th>Localidad</th><th class="num">Venta</th><th class="num">Margen %</th></tr></thead><tbody id="tbl-bajos"></tbody></table></div>
-      </div>
-    </div>
-  </section>
-
-  <section class="section" id="sec-detalle">
-    <div class="alert">🔍 Tabla con todas las líneas filtradas. Click en encabezados para ordenar. Usa el buscador para filtrar por texto.</div>
-    <div class="card">
-      <div class="card-header">
-        <div class="card-title">Líneas detalle</div>
-        <div class="card-actions">
-          <input type="text" class="tbl-search" placeholder="Buscar..." data-target="#tblDetalle">
-          <div class="card-meta" id="detCount"></div>
-        </div>
-      </div>
-      <div class="table-wrap" style="max-height:700px">
-        <table class="table-default" id="tblDetalle">
-          <thead><tr>
-            <th data-sort="anio">Año</th><th data-sort="mes">Mes</th><th data-sort="emp">Empresa</th><th data-sort="eje">Vendedor</th><th data-sort="cli">Cliente</th><th data-sort="hol">Holding</th><th data-sort="age">Agencia</th><th data-sort="est">Estado</th><th data-sort="loc">Localidad</th><th data-sort="cat">Categoría</th><th data-sort="med">Medio</th><th data-sort="sop">Soporte</th><th data-sort="tp">Tipo</th><th class="num" data-sort="vb">V. Bruta</th><th class="num" data-sort="vn">V. Neta</th><th class="num" data-sort="ut">Util.</th><th class="num" data-sort="mg">Mgn%</th>
-          </tr></thead>
-          <tbody id="tbl-det"></tbody>
-        </table>
       </div>
     </div>
   </section>
