@@ -1054,7 +1054,7 @@ tbody tr:hover { background: var(--bg-card-hover); }
   </section>
 
   <section class="section" id="sec-proyeccion">
-    <div class="alert info">📈 <b>Estimación estadística</b>, no un compromiso comercial. Método: descomposición estacional + tendencia interanual sobre 2025-2026 (mismo criterio de filtros que el resto del dashboard, ignora el filtro de Año). Se muestra un segundo método (regresión lineal) como contraste.</div>
+    <div class="alert info">📈 <b>Estimación estadística</b>, no un compromiso comercial. Método: descomposición estacional + tendencia interanual sobre el histórico completo 2015-2026 (mismo criterio de filtros que el resto del dashboard, ignora el filtro de Año). Se muestra un segundo método (regresión lineal) como contraste.</div>
     <div class="section-header">
       <div class="section-title">Cierre estimado 2026</div>
       <div class="section-subtitle">Real de los meses transcurridos + Forecast cargado para el resto del año</div>
@@ -1078,6 +1078,19 @@ tbody tr:hover { background: var(--bg-card-hover); }
     <div class="card full" style="margin-top:14px">
       <div class="card-header"><div class="card-title">🔬 Contraste de métodos</div><div class="card-meta">Método 1 (estacional + tendencia) vs Método 2 (regresión lineal simple)</div></div>
       <div id="projLinReg"></div>
+    </div>
+
+    <div class="section-header" style="margin-top:24px">
+      <div class="section-title">Histórico 2015-2026</div>
+      <div class="section-subtitle" id="projRoiNota">Venta Bruta reportada por año y Venta Neta estimada — base del cálculo de crecimiento y estacionalidad de arriba</div>
+    </div>
+    <div class="card full" style="margin-top:14px">
+      <div class="card-header"><div class="card-title">Venta Bruta mensual · 2015-2026</div><div class="card-meta">Color = intensidad vs el mes de mayor venta del histórico. Hover para ver detalle y YoY</div></div>
+      <div id="projHistBruta"></div>
+    </div>
+    <div class="card full" style="margin-top:14px">
+      <div class="card-header"><div class="card-title">Venta Neta mensual · 2015-2026</div><div class="card-meta">2015-2024 estimada con el % de ROI promedio combinado 2025+2026. Hover para ver detalle y YoY</div></div>
+      <div id="projHistNeta"></div>
     </div>
   </section>
 

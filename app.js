@@ -1552,16 +1552,35 @@ function buildHeatmapComparativo(key, valKey, topN=10) {
 
 // =========================================================================
 // PROYECCIÓN — cierre 2026 + forecast 2027
-// Método 1 (principal): descomposición estacional + tendencia interanual.
-//   cierre 2026 = real de meses transcurridos + forecast cargado del resto.
-//   crecimiento = promedio de crecimiento mes a mes (2026 estimado vs 2025 real).
-//   2027 = cierre 2026 de cada mes × (1 + crecimiento), preservando la forma estacional.
-//   El rango conservador/optimista usa el mínimo/máximo de esos crecimientos mensuales
-//   en vez de una sola cifra, porque con solo 2 años de historia una sola tasa sería
-//   una falsa precisión.
-// Método 2 (contraste): regresión lineal simple sobre los 24 meses (2025+2026),
-//   extrapolada a 2027. Ignora estacionalidad — es solo un cross-check de tendencia pura.
+//
+// Histórico manual: Venta Bruta mensual 2015-2024 compartida por el usuario
+// (no viene del Excel de Data Comercial — ese solo trae 2025-2026). La Venta
+// Neta de esos años se deriva con el % de ROI promedio combinado 2025+2026
+// (Total ROIs / Venta Bruta de ambos años juntos, con datos reales).
+//
+// Método 1 (principal): descomposición estacional + tendencia interanual,
+//   ahora sobre el histórico completo (2015-2026, 12 años) en vez de solo 2:
+//   - crecimiento = promedio del crecimiento año-a-año en TODO el histórico.
+//   - rango conservador/optimista = el año de mejor y peor crecimiento real
+//     observado en 12 años (mucho más defendible que solo 2025→2026).
+//   - forma estacional = promedio de la participación de cada mes en el año,
+//     across todos los años disponibles (no solo la forma de 2026).
+// Método 2 (contraste): regresión lineal simple sobre los ~144 meses
+//   (2015-2026), extrapolada a 2027. Ignora estacionalidad — cross-check.
 // =========================================================================
+const HISTORICAL_SALES_BRUTA = {
+  2015: [926317, 926317, 1148817, 1172617, 1660667, 1316217, 1271217, 1083317, 1177817, 1054317, 1366817, 2331426],
+  2016: [1615808, 1461008, 1714308, 1451554, 1345927, 1240365, 1679194, 2220698, 2515428, 2479481, 2886833, 1668185],
+  2017: [2756567, 2286375, 2640229, 1532697, 2033698, 2866389, 2335261, 1626338, 1680645, 3184347, 3220552, 2625518],
+  2018: [2931931, 2072651, 2011930, 8689214, 5968416, 4985840, 3806522, 3739011, 4049858, 6855251, 4557585, 6313226],
+  2019: [3170377, 2673420, 4637787, 5635209, 3892202, 3813013, 6073378, 5385764, 4355980, 5045118, 10528904, 5438895],
+  2020: [3557103, 5860918, 3491521, 2198262, 427800, 1868497, 2077757, 2815498, 2865921, 5389494, 5940540, 3398022],
+  2021: [3582896, 2931193, 4657571, 3588636, 4218273, 4845186, 5275629, 4763174, 6524623, 5315063, 6854038, 5797179],
+  2022: [4037446, 5370566, 4309747, 4323414, 6403724, 7045635, 8646715, 8547378, 11339850, 9394703, 13510181, 7376045],
+  2023: [7087487, 6533903, 16325544, 13848439, 8788993, 9013247, 8582062, 7377852, 5744144, 5895577, 9569083, 7849507],
+  2024: [4478667, 4536600, 7146988, 8361911, 6906806, 9276505, 8487206, 7684044, 8928259, 11485260, 10547464, 9389947],
+};
+
 function projGetYearMonthly(anio, valKey) {
   const data = Engine.facturable(Engine.applyFilters({ ...filters, anio }, { ignoreYear: false }));
   return Engine.monthly(data, valKey);
@@ -1584,12 +1603,43 @@ function projEstimateCierre(anio, valKey) {
   return real.map((v, i) => mesesConDatos.has(i + 1) ? v : fcMonthly[i]);
 }
 
-function projLinearRegressionAnnualTotal(series24) {
-  const n = series24.length;
+// % de ROI promedio (Agencia + Personal) combinando 2025+2026 con datos reales —
+// usado para derivar Venta Neta a partir de la Venta Bruta histórica manual.
+function computeAvgROIPct() {
+  const years = [2025, 2026].filter(y => Engine.yearsAvailable.includes(y));
+  const fact = years.flatMap(y => Engine.records.filter(r => r.anio === y && r.tc === 'Facturable' && r.st === 'Suma Forecast'));
+  const t = Engine.totalize(fact);
+  return t.vb > 0 ? t.roi / t.vb : 0.165;
+}
+
+// Serie histórica completa (2015 al presente) para una métrica dada.
+// 2015-2024: derivado del histórico manual (Bruta directa; Neta/Utilidad vía % ROI + margen objetivo).
+// 2025: real cargado. 2026: real + forecast del resto del año (cierre estimado).
+function buildFullHistoricalSeries(valKey) {
+  const roiPct = computeAvgROIPct();
+  const years = [];
+  const monthly = {};
+  Object.keys(HISTORICAL_SALES_BRUTA).map(Number).sort((a, b) => a - b).forEach(y => {
+    const bruta = HISTORICAL_SALES_BRUTA[y];
+    let vals = bruta;
+    if (valKey === 'vn') vals = bruta.map(v => v * (1 - roiPct));
+    else if (valKey === 'ut') vals = bruta.map(v => v * (1 - roiPct) * MARGEN_OBJETIVO);
+    years.push(y);
+    monthly[y] = vals;
+  });
+  years.push(2025);
+  monthly[2025] = projGetYearMonthly(2025, valKey);
+  years.push(2026);
+  monthly[2026] = projEstimateCierre(2026, valKey);
+  return { years, monthly, roiPct };
+}
+
+function projLinearRegressionAnnualTotal(series) {
+  const n = series.length;
   const xMean = (n - 1) / 2;
-  const yMean = series24.reduce((a, b) => a + b, 0) / n;
+  const yMean = series.reduce((a, b) => a + b, 0) / n;
   let num = 0, den = 0;
-  series24.forEach((y, x) => { num += (x - xMean) * (y - yMean); den += (x - xMean) ** 2; });
+  series.forEach((y, x) => { num += (x - xMean) * (y - yMean); den += (x - xMean) ** 2; });
   const slope = den ? num / den : 0;
   const intercept = yMean - slope * xMean;
   let total = 0;
@@ -1598,28 +1648,78 @@ function projLinearRegressionAnnualTotal(series24) {
 }
 
 function projBuildForecast(valKey) {
-  const real25 = projGetYearMonthly(2025, valKey);
-  const cierre26 = projEstimateCierre(2026, valKey);
-  const total25 = real25.reduce((a, b) => a + b, 0);
-  const total26 = cierre26.reduce((a, b) => a + b, 0);
+  const { years, monthly } = buildFullHistoricalSeries(valKey);
+  const totals = {};
+  years.forEach(y => { totals[y] = monthly[y].reduce((a, b) => a + b, 0); });
 
-  const monthlyGrowth = cierre26.map((v, i) => real25[i] > 0 ? (v / real25[i] - 1) : null).filter(g => g !== null);
-  const avgGrowth = monthlyGrowth.length ? monthlyGrowth.reduce((a, b) => a + b, 0) / monthlyGrowth.length : 0;
-  const minGrowth = monthlyGrowth.length ? Math.min(...monthlyGrowth) : 0;
-  const maxGrowth = monthlyGrowth.length ? Math.max(...monthlyGrowth) : 0;
+  // Crecimiento año-a-año sobre TODO el histórico disponible (hasta 11 comparaciones con 12 años)
+  const annualGrowths = [];
+  for (let i = 1; i < years.length; i++) {
+    const yPrev = years[i - 1], yCur = years[i];
+    if (totals[yPrev] > 0) annualGrowths.push(totals[yCur] / totals[yPrev] - 1);
+  }
+  const avgGrowth = annualGrowths.length ? annualGrowths.reduce((a, b) => a + b, 0) / annualGrowths.length : 0;
+  const minGrowth = annualGrowths.length ? Math.min(...annualGrowths) : 0;
+  const maxGrowth = annualGrowths.length ? Math.max(...annualGrowths) : 0;
 
-  const proj2027base = cierre26.map(v => Math.max(0, v * (1 + avgGrowth)));
-  const proj2027cons = cierre26.map(v => Math.max(0, v * (1 + minGrowth)));
-  const proj2027opt = cierre26.map(v => Math.max(0, v * (1 + maxGrowth)));
+  // Forma estacional promedio: participación de cada mes en el total de su año, promediada entre todos los años
+  const seasonalIndex = Array(12).fill(0);
+  years.forEach(y => {
+    const t = totals[y] || 1;
+    monthly[y].forEach((v, i) => { seasonalIndex[i] += (v / t) / years.length; });
+  });
+
+  const total26 = totals[2026];
+  const proj2027TotalBase = total26 * (1 + avgGrowth);
+  const proj2027TotalCons = total26 * (1 + minGrowth);
+  const proj2027TotalOpt = total26 * (1 + maxGrowth);
+  const proj2027base = seasonalIndex.map(idx => Math.max(0, proj2027TotalBase * idx));
+  const proj2027cons = seasonalIndex.map(idx => Math.max(0, proj2027TotalCons * idx));
+  const proj2027opt = seasonalIndex.map(idx => Math.max(0, proj2027TotalOpt * idx));
 
   return {
-    real25, cierre26, total25, total26, avgGrowth, minGrowth, maxGrowth,
+    years, monthly, totals,
+    real25: monthly[2025], cierre26: monthly[2026], total25: totals[2025], total26,
+    avgGrowth, minGrowth, maxGrowth, annualGrowths,
     proj2027base, proj2027cons, proj2027opt,
     total2027base: proj2027base.reduce((a, b) => a + b, 0),
     total2027cons: proj2027cons.reduce((a, b) => a + b, 0),
     total2027opt: proj2027opt.reduce((a, b) => a + b, 0),
-    linReg2027: projLinearRegressionAnnualTotal([...real25, ...cierre26]),
+    linReg2027: projLinearRegressionAnnualTotal(years.flatMap(y => monthly[y])),
   };
+}
+
+function hexToRgb(hex) {
+  const n = parseInt(hex.replace('#', ''), 16);
+  return `${(n >> 16) & 255},${(n >> 8) & 255},${n & 255}`;
+}
+
+function buildHistoricalTable(monthlyByYear, years, colorHex) {
+  const rgb = hexToRgb(colorHex);
+  const allVals = years.flatMap(y => monthlyByYear[y]);
+  const max = Math.max(...allVals, 1);
+  let html = '<div class="table-wrap"><table><thead class="top"><tr><th>Año</th>';
+  MESES.forEach(m => html += `<th class="num">${m}</th>`);
+  html += '<th class="num">Total</th><th class="num">YoY %</th></tr></thead><tbody>';
+  years.forEach((y, i) => {
+    const vals = monthlyByYear[y];
+    const total = vals.reduce((a, b) => a + b, 0);
+    const prevTotal = i > 0 ? monthlyByYear[years[i - 1]].reduce((a, b) => a + b, 0) : null;
+    const yoy = prevTotal ? (total - prevTotal) / prevTotal * 100 : null;
+    html += `<tr><td><b>${y}</b></td>`;
+    vals.forEach((v, mi) => {
+      const intensity = v / max;
+      const bg = `rgba(${rgb},${(0.05 + intensity * 0.85).toFixed(2)})`;
+      const prevYearVal = i > 0 ? monthlyByYear[years[i - 1]][mi] : null;
+      const cellYoy = prevYearVal ? ((v - prevYearVal) / prevYearVal * 100) : null;
+      const title = `${MESES_FULL[mi]} ${y}: ${fmtMoney(v)}` + (cellYoy !== null ? ` · YoY ${cellYoy >= 0 ? '+' : ''}${fmtPct(cellYoy)}` : '');
+      html += `<td class="num" style="background:${bg};color:${intensity > 0.5 ? '#fff' : '#24211c'}" title="${title}">${fmtMoneyShort(v)}</td>`;
+    });
+    html += `<td class="num" style="background:rgba(36,33,28,0.06);font-weight:700" title="${fmtMoney(total)}">${fmtMoneyShort(total)}</td>`;
+    html += `<td class="num ${yoy === null ? '' : yoy >= 0 ? 'pos' : 'neg'}">${yoy === null ? '—' : (yoy >= 0 ? '+' : '') + fmtPct(yoy)}</td></tr>`;
+  });
+  html += '</tbody></table></div>';
+  return html;
 }
 
 function renderProyeccion() {
@@ -1699,6 +1799,14 @@ function renderProyeccion() {
       ${rowLinReg('Venta Neta', vn)}
       ${rowLinReg('Utilidad', ut)}
     </tbody></table></div>`;
+
+  const elRoi = document.getElementById('projRoiNota');
+  if (elRoi) elRoi.textContent = `Venta Neta histórica (2015-2024) estimada con el % de ROI promedio combinado 2025+2026: ${fmtPct(computeAvgROIPct() * 100)}`;
+
+  const elHistVB = document.getElementById('projHistBruta');
+  if (elHistVB) elHistVB.innerHTML = buildHistoricalTable(vb.monthly, vb.years, '#d9662c');
+  const elHistVN = document.getElementById('projHistNeta');
+  if (elHistVN) elHistVN.innerHTML = buildHistoricalTable(vn.monthly, vn.years, '#2563eb');
 }
 
 // =========================================================================
