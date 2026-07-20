@@ -267,7 +267,7 @@ function populateFilters() {
   sel.innerHTML = '';
   ejesShow.forEach(e => {
     const op = document.createElement('option');
-    op.value = e.key; op.textContent = `${e.key} · ${fmtMoneyShort(e.vb)}`;
+    op.value = e.key; op.textContent = e.key;
     sel.appendChild(op);
   });
 
@@ -1862,7 +1862,13 @@ function renderProveedor() {
   const provActualKeys = new Set(provs.map(p => p.key));
 
   // === SCORE 0-100 (Recurrencia 40% + Margen 30% + Monto 30%) ===
-  // Normalizo por percentile rank para mitigar outliers
+  // Margen usa percentile rank (es un % acotado, comparar contra pares tiene sentido).
+  // Recurrencia y Monto usan escala relativa al máximo (valor/máximo × 100) en vez de
+  // percentile rank: con percentile rank, un proveedor con muchas compras pequeñas podía
+  // superar en score a uno con compras grandes pero menos frecuentes, simplemente por
+  // "vencer" a más proveedores chicos en el conteo — sin reflejar la magnitud real del
+  // monto o volumen. La escala relativa al máximo sí castiga a un proveedor cuyo monto
+  // es mínimo frente al líder, aunque tenga muchas transacciones.
   function percentileRank(arr, getVal) {
     const sorted = arr.map(getVal).slice().sort((a,b) => a-b);
     const N = sorted.length;
@@ -1873,10 +1879,14 @@ function renderProveedor() {
       return N > 1 ? count / (N - 1) * 100 : 50;
     };
   }
+  function relativeToMax(arr, getVal) {
+    const max = Math.max(...arr.map(getVal), 0);
+    return v => max > 0 ? Math.max(0, v) / max * 100 : 0;
+  }
   if (provs.length > 0) {
-    const rankN = percentileRank(provs, p => p.n);
+    const rankN = relativeToMax(provs, p => p.n);
     const rankMg = percentileRank(provs, p => p.margen);
-    const rankCst = percentileRank(provs, p => p.cst);
+    const rankCst = relativeToMax(provs, p => p.cst);
     provs.forEach(p => {
       const rN = rankN(p.n);
       const rM = rankMg(p.margen);
@@ -1967,9 +1977,9 @@ function renderProveedor() {
       <td><b>${i+1}</b></td>
       <td><b>${p.key}</b></td>
       <td class="num ${scoreCls}"><b>${p.score.toFixed(0)}</b></td>
-      <td class="num" style="color:var(--text-muted)" title="Percentile rank en # compras">${p.rankN.toFixed(0)}</td>
+      <td class="num" style="color:var(--text-muted)" title="% del máximo # de compras entre proveedores">${p.rankN.toFixed(0)}</td>
       <td class="num" style="color:var(--text-muted)" title="Percentile rank en margen %">${p.rankMg.toFixed(0)}</td>
-      <td class="num" style="color:var(--text-muted)" title="Percentile rank en monto $">${p.rankCst.toFixed(0)}</td>
+      <td class="num" style="color:var(--text-muted)" title="% del monto del proveedor líder en costo">${p.rankCst.toFixed(0)}</td>
       <td class="num">${p.n}</td>
       <td class="num">${fmtMoney(p.cst)}</td>
       <td class="num ${mgCls}">${fmtPct(p.margen)}</td>
