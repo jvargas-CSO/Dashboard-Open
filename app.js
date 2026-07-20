@@ -1819,13 +1819,15 @@ function renderProyeccion() {
 // CONTROLES MAESTROS — consulta de detalle por campaña (CM)
 // Se agrupa por "cm" (identificador real de cada venta) en vez de por el
 // nombre de campaña en sí, para que el join entre líneas sea siempre exacto
-// aunque el nombre se escriba con alguna variación. Solo respeta el filtro
-// de Año del panel superior — el resto de los filtros del sidebar no aplica,
-// porque esto es una herramienta de consulta libre por venta.
+// aunque el nombre se escriba con alguna variación. La lista desplegable
+// respeta los filtros de Año y Ejecutivo del panel superior — el resto de
+// los filtros del sidebar no aplica, porque esto es una herramienta de
+// consulta libre por venta.
 // =========================================================================
 function renderControlesMaestros() {
   const yActual = parseInt(filters.anio) || null;
-  const dataForList = yActual ? Engine.records.filter(r => r.anio === yActual) : Engine.records;
+  let dataForList = yActual ? Engine.records.filter(r => r.anio === yActual) : Engine.records;
+  if (filters.eje) dataForList = dataForList.filter(r => r.eje === filters.eje);
 
   const cmMap = {};
   dataForList.forEach(r => {
@@ -1834,11 +1836,18 @@ function renderControlesMaestros() {
   });
   const campanas = Object.values(cmMap).sort((a,b) => String(a.cmp).localeCompare(String(b.cmp), 'es'));
 
+  // Si el mismo nombre de campaña corresponde a más de un CM distinto (venta
+  // diferente que reutiliza el nombre), se le agrega el CM a la etiqueta para
+  // no confundirlas en el dropdown.
+  const countByName = {};
+  campanas.forEach(c => { countByName[c.cmp] = (countByName[c.cmp]||0) + 1; });
+
   const sel = document.getElementById('cmSel');
-  sel.innerHTML = campanas.length ? '' : '<option value="">Sin campañas para este año</option>';
+  sel.innerHTML = campanas.length ? '' : '<option value="">Sin campañas para este filtro</option>';
   campanas.forEach(c => {
     const op = document.createElement('option');
-    op.value = c.cm; op.textContent = c.cmp;
+    op.value = c.cm;
+    op.textContent = countByName[c.cmp] > 1 ? `${c.cmp} · CM ${c.cm}` : c.cmp;
     sel.appendChild(op);
   });
   selectedCM = campanas.some(c => c.cm === selectedCM) ? selectedCM : (campanas[0]?.cm || '');
