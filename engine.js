@@ -53,6 +53,10 @@ const COL_MAP = {
   gastos: ['Gastos'],
   utilidadTotalProyecto: ['Utilidad Total Proyecto'],
   pctComisionPagar: ['% de Comisión a Pagar'],
+  // --- Controles Maestros: columnas de detalle por sitio/línea ---
+  idSitio: ['Id de sitio', 'ID de sitio', 'Id Sitio'],
+  domicilio: ['Ubicación y/o Ruta', 'Ubicacion y/o Ruta'],
+  nombreRoiPersonal: ['Nombre ROI Personal'],
 };
 
 // =========================================================================
@@ -475,6 +479,9 @@ function processDataWorkbook(workbook) {
         gastos: num(get('gastos')),
         utilidadTotalProyecto: num(get('utilidadTotalProyecto')),
         pctComisionPagar: num(get('pctComisionPagar')),
+        idSitio: (get('idSitio') || '').toString().trim(),
+        domicilio: (get('domicilio') || '').toString().trim(),
+        nombreRoiPersonal: (get('nombreRoiPersonal') || '').toString().trim(),
         // Fila cruda completa (todas las columnas originales del Excel, incluidas las que no
         // mapeamos a un campo limpio) — permite que el asistente IA consulte literalmente
         // cualquier columna del archivo, no solo las que decidimos nombrar.

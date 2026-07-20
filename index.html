@@ -859,6 +859,13 @@ tbody tr:hover { background: var(--bg-card-hover); }
       </button>
     </div>
     <div class="nav-group">
+      <div class="nav-group-title">Control</div>
+      <button class="nav-item" data-tab="controlesMaestros">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <span class="nav-item-text">Controles Maestros</span>
+      </button>
+    </div>
+    <div class="nav-group">
       <div class="nav-group-title">Asistente</div>
       <button class="nav-item" data-tab="ia">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a5 5 0 0 1 5 5v2a5 5 0 0 1-10 0V7a5 5 0 0 1 5-5z"/><path d="M8 14v2a4 4 0 0 0 8 0v-2"/><line x1="12" y1="20" x2="12" y2="22"/><line x1="8" y1="22" x2="16" y2="22"/></svg>
@@ -1296,6 +1303,24 @@ tbody tr:hover { background: var(--bg-card-hover); }
         <div class="card-header"><div class="card-title">Líneas con margen bajo o negativo</div></div>
         <div class="table-wrap" style="max-height:380px"><table class="table-default"><thead><tr><th>Cliente</th><th>Vendedor</th><th>Categoría</th><th>Localidad</th><th class="num">Venta</th><th class="num">Margen %</th></tr></thead><tbody id="tbl-bajos"></tbody></table></div>
       </div>
+    </div>
+  </section>
+
+  <section class="section" id="sec-controlesMaestros">
+    <div class="alert info">🔍 Consulta el detalle completo de <b>cualquier venta</b> por nombre de campaña. Cada campaña agrupa todas sus líneas (sitios/medios) bajo el mismo <b>CM</b>. Solo respeta el filtro de <b>Año</b> del panel superior — ignora el resto de los filtros.</div>
+    <div class="card full">
+      <div class="card-header">
+        <div class="card-title">Seleccionar campaña</div>
+        <div class="filter-group" style="width:340px">
+          <label>Campaña</label>
+          <select id="cmSel"></select>
+        </div>
+      </div>
+      <div class="kpi-grid" id="cmResumen"></div>
+    </div>
+    <div class="card full" style="margin-top:14px">
+      <div class="card-header"><div class="card-title">Detalle por línea</div><div class="card-meta">Un renglón por sitio/medio dentro de la campaña seleccionada</div></div>
+      <div id="cmDetail"></div>
     </div>
   </section>
 

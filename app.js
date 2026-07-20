@@ -70,6 +70,7 @@ const filters = { anio:'', mes:'', emp:'', eje:'', est:'', loc:'', cat:'', hol:'
 let charts = {};
 let selectedVendedor = '';
 let acVendedor = '';
+let selectedCM = '';
 let dataLoaded = false;
 let forecastLoaded = false;
 let iaAutoInsightsGenerated = false;
@@ -324,6 +325,10 @@ function attachListeners() {
     acVendedor = e.target.value;
     if (document.querySelector('.nav-item.active').dataset.tab === 'alcanceCliente') renderAlcanceCliente();
   });
+  document.getElementById('cmSel').addEventListener('change', e => {
+    selectedCM = e.target.value;
+    renderCMDetail();
+  });
   setupIA();
 }
 function resetFilters() {
@@ -457,6 +462,7 @@ function render() {
     case 'estacionalidad': renderEstacionalidad(); break;
     case 'rentabilidad': renderRentabilidad(); break;
     case 'proyeccion': renderProyeccion(); break;
+    case 'controlesMaestros': renderControlesMaestros(); break;
   }
   // Post-render: inyectar botones de export PNG y wire search inputs
   requestAnimationFrame(() => {
@@ -1807,6 +1813,98 @@ function renderProyeccion() {
   if (elHistVB) elHistVB.innerHTML = buildHistoricalTable(vb.monthly, vb.years, '#d9662c');
   const elHistVN = document.getElementById('projHistNeta');
   if (elHistVN) elHistVN.innerHTML = buildHistoricalTable(vn.monthly, vn.years, '#2563eb');
+}
+
+// =========================================================================
+// CONTROLES MAESTROS — consulta de detalle por campaña (CM)
+// Se agrupa por "cm" (identificador real de cada venta) en vez de por el
+// nombre de campaña en sí, para que el join entre líneas sea siempre exacto
+// aunque el nombre se escriba con alguna variación. Solo respeta el filtro
+// de Año del panel superior — el resto de los filtros del sidebar no aplica,
+// porque esto es una herramienta de consulta libre por venta.
+// =========================================================================
+function renderControlesMaestros() {
+  const yActual = parseInt(filters.anio) || null;
+  const dataForList = yActual ? Engine.records.filter(r => r.anio === yActual) : Engine.records;
+
+  const cmMap = {};
+  dataForList.forEach(r => {
+    if (!r.cm) return;
+    if (!cmMap[r.cm]) cmMap[r.cm] = { cm: r.cm, cmp: r.cmp || r.cm };
+  });
+  const campanas = Object.values(cmMap).sort((a,b) => String(a.cmp).localeCompare(String(b.cmp), 'es'));
+
+  const sel = document.getElementById('cmSel');
+  sel.innerHTML = campanas.length ? '' : '<option value="">Sin campañas para este año</option>';
+  campanas.forEach(c => {
+    const op = document.createElement('option');
+    op.value = c.cm; op.textContent = c.cmp;
+    sel.appendChild(op);
+  });
+  selectedCM = campanas.some(c => c.cm === selectedCM) ? selectedCM : (campanas[0]?.cm || '');
+  sel.value = selectedCM;
+
+  renderCMDetail();
+}
+
+function renderCMDetail() {
+  const resumenEl = document.getElementById('cmResumen');
+  const detailEl = document.getElementById('cmDetail');
+  if (!selectedCM) {
+    resumenEl.innerHTML = '';
+    detailEl.innerHTML = '<div style="padding:20px;color:var(--text-muted);text-align:center">Selecciona una campaña</div>';
+    return;
+  }
+  const lines = Engine.records.filter(r => r.cm === selectedCM).sort((a,b) => (a.mes||0) - (b.mes||0));
+  if (lines.length === 0) {
+    resumenEl.innerHTML = '';
+    detailEl.innerHTML = '<div style="padding:20px;color:var(--text-muted);text-align:center">Sin líneas para esta campaña</div>';
+    return;
+  }
+
+  const sum = (k) => lines.reduce((a,r) => a + (r[k]||0), 0);
+  const totVB = sum('vb'), totVN = sum('vn'), totROI = sum('roi'), totCST = sum('cst'),
+        totUT = sum('ut'), totComAdv = sum('comAdv');
+  const margenTotal = totVN ? (totUT / totVN * 100) : 0;
+  const mgCls = margenTotal >= 30 ? 'success' : margenTotal >= 15 ? 'warning' : 'danger';
+  const first = lines[0];
+
+  resumenEl.innerHTML = [
+    {label:'Cliente', val: first.cli || '—', sub: first.eje || '—', cls:'info'},
+    {label:'Campaña', val: first.cmp || selectedCM, sub: `CM ${selectedCM} · ${lines.length} línea${lines.length===1?'':'s'}`, cls:'info'},
+    {label:'Tarifa Total Cliente', val: fmtMoneyShort(totVB), sub: fmtMoney(totVB), cls:'info'},
+    {label:'Venta Sin ROI', val: fmtMoneyShort(totVN), sub: fmtMoney(totVN), cls:'info'},
+    {label:'Total Costos', val: fmtMoneyShort(totCST), sub: fmtMoney(totCST), cls:'info'},
+    {label:'Utilidad Línea $', val: fmtMoneyShort(totUT), sub: fmtMoney(totUT), cls:'success'},
+    {label:'Margen %', val: fmtPct(margenTotal), sub: 'Utilidad / Venta Sin ROI', cls: mgCls},
+    {label:'Comisión ADV', val: fmtMoney(totComAdv), sub: `Total ROIs: ${fmtMoney(totROI)}`, cls:'info'},
+  ].map(k=>`<div class="kpi ${k.cls}"><div class="kpi-label">${k.label}</div><div class="kpi-value">${k.val}</div><div class="kpi-sub">${k.sub}</div></div>`).join('');
+
+  const fmtDate = (d) => d ? new Date(d).toLocaleDateString('es-MX') : '—';
+  let html = `<div class="table-wrap"><table class="table-default"><thead class="top"><tr>
+    <th>Ejecutivo</th><th>Cliente</th><th>Agencia</th><th>Proveedor Comercial</th><th>Id Sitio</th>
+    <th>Fecha Inicio</th><th>Fecha Fin</th><th>Localidad</th><th>Campaña</th><th>Medio</th><th>Domicilio</th>
+    <th class="num">Tarifa Unit. Proveedor</th><th class="num">Tarifa Total Cliente</th>
+    <th class="num">ROI % Agencia</th><th class="num">Monto ROI Agencia</th>
+    <th class="num">ROI % Personal</th><th class="num">Monto ROI Personal</th><th>Nombre ROI Personal</th>
+    <th class="num">Venta Sin ROI</th><th class="num">Total ROIs</th><th class="num">Total Costos</th>
+    <th class="num">Utilidad Línea %</th><th class="num">Utilidad Línea $</th><th class="num">Comisión ADV</th>
+  </tr></thead><tbody>`;
+  lines.forEach(r => {
+    const margen = r.vn ? (r.ut / r.vn * 100) : 0;
+    const cls = margen >= 30 ? 'alc-good' : margen >= 15 ? 'alc-warn' : 'alc-bad';
+    html += `<tr>
+      <td>${r.eje || '—'}</td><td>${r.cli || '—'}</td><td>${r.age || '—'}</td><td>${r.prov || '—'}</td><td>${r.idSitio || '—'}</td>
+      <td>${fmtDate(r.fechaInicio)}</td><td>${fmtDate(r.fechaFin)}</td><td>${r.loc || '—'}</td><td>${r.cmp || '—'}</td><td>${r.med || '—'}</td><td>${r.domicilio || '—'}</td>
+      <td class="num">${fmtMoney(r.costoUnitProveedor)}</td><td class="num">${fmtMoney(r.vb)}</td>
+      <td class="num">${fmtPct((r.pctROIAgencia||0)*100)}</td><td class="num">${fmtMoney(r.montoROIAgencia)}</td>
+      <td class="num">${fmtPct((r.pctROIPersonal||0)*100)}</td><td class="num">${fmtMoney(r.montoROIPersonal)}</td><td>${r.nombreRoiPersonal || '—'}</td>
+      <td class="num">${fmtMoney(r.vn)}</td><td class="num">${fmtMoney(r.roi)}</td><td class="num">${fmtMoney(r.cst)}</td>
+      <td class="num ${cls}">${fmtPct(margen)}</td><td class="num">${fmtMoney(r.ut)}</td><td class="num">${fmtMoney(r.comAdv)}</td>
+    </tr>`;
+  });
+  html += '</tbody></table></div>';
+  detailEl.innerHTML = html;
 }
 
 // =========================================================================
