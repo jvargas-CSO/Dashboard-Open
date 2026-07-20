@@ -2592,7 +2592,40 @@ const AI_TOOLS = [
       required: ['anio', 'groupBy'],
     },
   },
+  {
+    name: 'list_raw_columns',
+    description: 'Lista TODAS las columnas originales del archivo Data Comercial tal como vienen en el Excel, incluidas las que no tienen un campo "limpio" en las demás herramientas (ej. datos de sitio, conciliación financiera, penalizaciones, créditos). Llama esto primero cuando el usuario pregunte por algo que no encaja claramente en aggregate_by_dimension, monthly_series, get_totals ni search_lines, para encontrar el nombre exacto de columna que necesitas pasarle a aggregate_raw_column.',
+    input_schema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'aggregate_raw_column',
+    description: 'Consulta cualquier columna original del archivo por su nombre exacto (obtenido de list_raw_columns). Si son valores numéricos, suma o promedia — opcionalmente agrupado por una dimensión. Si son valores de texto/categoría, regresa los más frecuentes.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        column: { type: 'string', description: 'Nombre exacto de la columna, tal como lo regresó list_raw_columns' },
+        dimension: { type: 'string', enum: ['eje', 'cli', 'hol', 'age', 'prov', 'provRSF', 'est', 'loc', 'med', 'cat', 'tp', 'tc', 'st', 'cc', 'adv', 'financiamiento'], description: 'Opcional: agrupar el resultado por esta dimensión' },
+        agg: { type: 'string', enum: ['sum', 'avg', 'distinct'], description: 'sum=sumar, avg=promediar, distinct=valores más frecuentes (para texto). Default: sum' },
+        anio: { type: 'integer' },
+        mes: { type: 'integer' },
+        limit: { type: 'integer', description: 'default 15-20, máximo 50' },
+      },
+      required: ['column'],
+    },
+  },
 ];
+
+function normalizeColKey(s) {
+  return String(s || '').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+function findRawValue(rawObj, columnName) {
+  if (!rawObj) return undefined;
+  if (columnName in rawObj) return rawObj[columnName];
+  const target = normalizeColKey(columnName);
+  const foundKey = Object.keys(rawObj).find(k => normalizeColKey(k) === target);
+  return foundKey ? rawObj[foundKey] : undefined;
+}
 
 function aiFilteredData({ anio, mes, dimensionFilter } = {}) {
   const f = { ...filters };
@@ -2685,12 +2718,62 @@ function aiToolForecast({ anio, eje, cli, groupBy }) {
   return { anio, forecastNetoTotal: Math.round(data.reduce((a, f) => a + f.fcNeto, 0)), entradas: data.length };
 }
 
+function aiToolListRawColumns() {
+  const seen = new Map(); // normalizado -> nombre original
+  const yearsCovered = new Set();
+  Engine.records.forEach(r => {
+    if (yearsCovered.has(r.anio) || !r._raw) return;
+    yearsCovered.add(r.anio);
+    Object.keys(r._raw).forEach(k => {
+      const norm = normalizeColKey(k);
+      if (!seen.has(norm)) seen.set(norm, k);
+    });
+  });
+  return { columnas: [...seen.values()].sort((a, b) => a.localeCompare(b, 'es')) };
+}
+
+function aiToolAggregateRawColumn({ column, dimension, agg, anio, mes, limit }) {
+  if (!column) return { error: 'Falta column — usa list_raw_columns primero para ver los nombres exactos disponibles' };
+  const data = aiFilteredData({ anio, mes });
+  const lim = Math.min(limit || 20, 50);
+  agg = agg || 'sum';
+
+  if (!dimension) {
+    const values = data.map(r => findRawValue(r._raw, column)).filter(v => v !== undefined && v !== null && v !== '');
+    if (!values.length) return { error: `No se encontró la columna "${column}" o no tiene valores en los datos filtrados.` };
+    const numeric = values.every(v => !isNaN(num(v)));
+    if (agg === 'distinct' || !numeric) {
+      const counts = {};
+      values.forEach(v => { const k = String(v); counts[k] = (counts[k] || 0) + 1; });
+      return { column, valoresMasFrecuentes: Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, lim).map(([valor, conteo]) => ({ valor, conteo })) };
+    }
+    const nums = values.map(v => num(v));
+    const total = nums.reduce((a, b) => a + b, 0);
+    return { column, suma: Math.round(total * 100) / 100, promedio: nums.length ? Math.round(total / nums.length * 100) / 100 : 0, lineas: nums.length };
+  }
+
+  const map = {};
+  data.forEach(r => {
+    const raw = findRawValue(r._raw, column);
+    if (raw === undefined || raw === null || raw === '') return;
+    const k = r[dimension] || 'Sin definir';
+    if (!map[k]) map[k] = { key: k, sum: 0, n: 0 };
+    map[k].sum += num(raw); map[k].n += 1;
+  });
+  return Object.values(map)
+    .sort((a, b) => b.sum - a.sum)
+    .slice(0, lim)
+    .map(g => ({ [dimension]: g.key, [agg === 'avg' ? 'promedio' : 'suma']: Math.round((agg === 'avg' ? g.sum / (g.n || 1) : g.sum) * 100) / 100, lineas: g.n }));
+}
+
 const AI_TOOL_HANDLERS = {
   aggregate_by_dimension: aiToolAggregate,
   monthly_series: aiToolMonthlySeries,
   get_totals: aiToolTotals,
   get_forecast: aiToolForecast,
   search_lines: aiToolSearch,
+  list_raw_columns: aiToolListRawColumns,
+  aggregate_raw_column: aiToolAggregateRawColumn,
 };
 
 function runAITool(name, input) {

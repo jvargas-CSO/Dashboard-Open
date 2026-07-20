@@ -475,6 +475,10 @@ function processDataWorkbook(workbook) {
         gastos: num(get('gastos')),
         utilidadTotalProyecto: num(get('utilidadTotalProyecto')),
         pctComisionPagar: num(get('pctComisionPagar')),
+        // Fila cruda completa (todas las columnas originales del Excel, incluidas las que no
+        // mapeamos a un campo limpio) — permite que el asistente IA consulte literalmente
+        // cualquier columna del archivo, no solo las que decidimos nombrar.
+        _raw: row,
       };
       records.push(rec);
     });
