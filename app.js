@@ -281,7 +281,19 @@ function populateFilters() {
   });
 }
 
+// En celular, algunas pestañas de tablas pesadas quedan ocultas (ver .nav-desktop-only en el
+// CSS). Si la pestaña activa queda oculta al achicar la ventana o rotar una tablet, regresa a
+// Resumen en vez de dejar al usuario viendo una sección vacía sin nav visible para salir.
+function enforceMobileTabRestriction() {
+  if (window.innerWidth > 768) return;
+  const active = document.querySelector('.nav-item.active');
+  if (active && active.classList.contains('nav-desktop-only')) {
+    document.querySelector('.nav-item[data-tab="resumen"]')?.click();
+  }
+}
+
 function attachListeners() {
+  window.addEventListener('resize', enforceMobileTabRestriction);
   Object.keys(filters).forEach(k => {
     if (k === 'statusOpen') return; // multi-select se maneja aparte
     const el = document.getElementById('f-'+k);

@@ -752,7 +752,13 @@ tbody tr:hover { background: var(--bg-card-hover); }
   main.content { padding: 16px; }
   .dropzone-grid { grid-template-columns: 1fr; }
   .tbl-search { width: 150px; }
+  /* Versión mobile reducida: pestañas de análisis a detalle y tablas anchas quedan solo para
+     computadora/tablet — en celular se muestran únicamente KPIs, gráficas e insights ligeros. */
+  .nav-desktop-only { display: none !important; }
+  .mobile-hide { display: none !important; }
+  .mobile-only-note { display: block !important; }
 }
+.mobile-only-note { display: none; }
 </style>
 </head>
 <body>
@@ -799,18 +805,18 @@ tbody tr:hover { background: var(--bg-card-hover); }
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>
         <span class="nav-item-text">Resumen</span>
       </button>
-      <button class="nav-item" data-tab="empresa">
+      <button class="nav-item nav-desktop-only" data-tab="empresa">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18M5 21V7l8-4v18M19 21V11l-6-4"/><path d="M9 9h.01M9 13h.01M9 17h.01"/></svg>
         <span class="nav-item-text">Por Empresa</span>
       </button>
-      <button class="nav-item" data-tab="vendedor">
+      <button class="nav-item nav-desktop-only" data-tab="vendedor">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
         <span class="nav-item-text">Por Vendedor</span>
       </button>
     </div>
     <div class="nav-group">
       <div class="nav-group-title">Análisis</div>
-      <button class="nav-item" data-tab="alcanceCliente">
+      <button class="nav-item nav-desktop-only" data-tab="alcanceCliente">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
         <span class="nav-item-text">Alcance Cliente</span>
       </button>
@@ -829,38 +835,38 @@ tbody tr:hover { background: var(--bg-card-hover); }
     </div>
     <div class="nav-group">
       <div class="nav-group-title">Comercial</div>
-      <button class="nav-item" data-tab="proveedor">
+      <button class="nav-item nav-desktop-only" data-tab="proveedor">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 3h15v13H1z"/><path d="M16 8h4l3 3v5h-7"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
         <span class="nav-item-text">Por Proveedor</span>
       </button>
-      <button class="nav-item" data-tab="medios">
+      <button class="nav-item nav-desktop-only" data-tab="medios">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
         <span class="nav-item-text">Mix por Categoría</span>
       </button>
-      <button class="nav-item" data-tab="clientes">
+      <button class="nav-item nav-desktop-only" data-tab="clientes">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
         <span class="nav-item-text">Clientes</span>
       </button>
-      <button class="nav-item" data-tab="holdings">
+      <button class="nav-item nav-desktop-only" data-tab="holdings">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 22h20"/><path d="M3 11h18v11H3z"/><path d="M5 11V7l7-4 7 4v4"/></svg>
         <span class="nav-item-text">Holdings/Agencias</span>
       </button>
-      <button class="nav-item" data-tab="geografia">
+      <button class="nav-item nav-desktop-only" data-tab="geografia">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
         <span class="nav-item-text">Geografía</span>
       </button>
-      <button class="nav-item" data-tab="estacionalidad">
+      <button class="nav-item nav-desktop-only" data-tab="estacionalidad">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
         <span class="nav-item-text">Estacionalidad</span>
       </button>
-      <button class="nav-item" data-tab="rentabilidad">
+      <button class="nav-item nav-desktop-only" data-tab="rentabilidad">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
         <span class="nav-item-text">Rentabilidad</span>
       </button>
     </div>
     <div class="nav-group">
       <div class="nav-group-title">Control</div>
-      <button class="nav-item" data-tab="controlesMaestros">
+      <button class="nav-item nav-desktop-only" data-tab="controlesMaestros">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
         <span class="nav-item-text">Controles Maestros</span>
       </button>
@@ -989,6 +995,7 @@ tbody tr:hover { background: var(--bg-card-hover); }
 
   <section class="section" id="sec-comparativo">
     <div class="alert info">📈 Comparativo entre años. Ignora filtro de Año, respeta los demás. Solo Facturable.</div>
+    <div class="alert mobile-only-note">🖥️ La tabla comparativa mensual detallada solo está disponible en computadora o tablet.</div>
     <div class="cards-grid">
       <div class="card">
         <div class="card-header"><div class="card-title">Venta Bruta · año vs año</div></div>
@@ -1007,7 +1014,7 @@ tbody tr:hover { background: var(--bg-card-hover); }
         <div class="chart-container tall"><canvas id="ch-cmpMargen"></canvas></div>
       </div>
     </div>
-    <div class="card full" style="margin-top:14px">
+    <div class="card full mobile-hide" style="margin-top:14px">
       <div class="card-header"><div class="card-title">Tabla comparativa mensual</div></div>
       <div id="tblComparativo"></div>
     </div>
@@ -1015,13 +1022,14 @@ tbody tr:hover { background: var(--bg-card-hover); }
 
   <section class="section" id="sec-estrategia">
     <div class="alert">🔥 <b>Insights para dirigir la estrategia comercial.</b> Identifica oportunidades de upsell, riesgos de concentración, vendedores con mix limitado y combinaciones ganadoras.</div>
+    <div class="alert mobile-only-note">🖥️ Las tablas de mix, concentración, desempeño por cuenta y estacionalidad solo están disponibles en computadora o tablet.</div>
     <div class="kpi-grid" id="estKpis"></div>
     <div class="cards-grid">
-      <div class="card full">
+      <div class="card full mobile-hide">
         <div class="card-header"><div class="card-title">🎯 Mix de venta por vendedor × categoría</div><div class="card-meta">% de cada categoría en cartera del vendedor</div></div>
         <div id="mixVendedorMedio"></div>
       </div>
-      <div class="card full">
+      <div class="card full mobile-hide">
         <div class="card-header"><div class="card-title">⚠️ Concentración de cartera por vendedor</div><div class="card-meta">% que representa el top 1, 3, 5 cliente</div></div>
         <div id="concentracionVendedor"></div>
       </div>
@@ -1037,23 +1045,23 @@ tbody tr:hover { background: var(--bg-card-hover); }
         <div class="card-header"><div class="card-title">📆 Campañas que vencen este mes</div><div class="card-meta">Según Fecha Fin — oportunidad de renovación proactiva</div></div>
         <div id="campanasPorVencer"></div>
       </div>
-      <div class="card full">
+      <div class="card full mobile-hide">
         <div class="card-header"><div class="card-title">📋 Desempeño por Cuenta</div><div class="card-meta">Vista detallada por cliente: comparativo YoY, mix de categorías, alcance, status</div></div>
         <div id="desempenoCuenta"></div>
       </div>
-      <div class="card full">
+      <div class="card full mobile-hide">
         <div class="card-header"><div class="card-title">📅 Estacionalidad por vendedor</div><div class="card-meta">Comparativo 2026 vs 2025</div></div>
         <div id="estacionalidadVendedor"></div>
       </div>
-      <div class="card full">
+      <div class="card full mobile-hide">
         <div class="card-header"><div class="card-title">📅 Estacionalidad por categoría</div><div class="card-meta">Comparativo 2026 vs 2025</div></div>
         <div id="estacionalidadMedio"></div>
       </div>
-      <div class="card full">
+      <div class="card full mobile-hide">
         <div class="card-header"><div class="card-title">🚨 Holdings que erosionan margen</div></div>
         <div id="holdingsRiesgo"></div>
       </div>
-      <div class="card full">
+      <div class="card full mobile-hide">
         <div class="card-header"><div class="card-title">⭐ Combinaciones ganadoras (Cliente × Categoría × Localidad)</div></div>
         <div id="combinacionesTop"></div>
       </div>
@@ -1062,6 +1070,7 @@ tbody tr:hover { background: var(--bg-card-hover); }
 
   <section class="section" id="sec-proyeccion">
     <div class="alert info">📈 <b>Estimación estadística</b>, no un compromiso comercial. El cierre 2026 = lo ya comprometido en Data Comercial + una proyección de venta nueva esperada según la tendencia histórica de crecimiento año-a-año (2015-2025), aplicada sobre el real de 2025. El 2027 se proyecta con descomposición estacional + tendencia sobre el histórico completo 2015-2026. Se muestra un segundo método (regresión lineal) como contraste.</div>
+    <div class="alert mobile-only-note">🖥️ El contraste de métodos y las tablas históricas 2015-2026 solo están disponibles en computadora o tablet.</div>
     <div class="section-header">
       <div class="section-title">Cierre estimado 2026</div>
       <div class="section-subtitle" id="projCierreNota">Lo ya comprometido + proyección de venta nueva esperada según tendencia histórica</div>
@@ -1082,22 +1091,24 @@ tbody tr:hover { background: var(--bg-card-hover); }
       <div class="section-subtitle">Rango conservador–optimista basado en la variabilidad de crecimiento mensual observada</div>
     </div>
     <div class="kpi-grid kpi-grid-big" id="projKpis2027"></div>
-    <div class="card full" style="margin-top:14px">
-      <div class="card-header"><div class="card-title">🔬 Contraste de métodos</div><div class="card-meta">Método 1 (estacional + tendencia) vs Método 2 (regresión lineal simple)</div></div>
-      <div id="projLinReg"></div>
-    </div>
+    <div class="mobile-hide">
+      <div class="card full" style="margin-top:14px">
+        <div class="card-header"><div class="card-title">🔬 Contraste de métodos</div><div class="card-meta">Método 1 (estacional + tendencia) vs Método 2 (regresión lineal simple)</div></div>
+        <div id="projLinReg"></div>
+      </div>
 
-    <div class="section-header" style="margin-top:24px">
-      <div class="section-title">Histórico 2015-2026</div>
-      <div class="section-subtitle" id="projRoiNota">Venta Bruta reportada por año y Venta Neta estimada — base del cálculo de crecimiento y estacionalidad de arriba</div>
-    </div>
-    <div class="card full" style="margin-top:14px">
-      <div class="card-header"><div class="card-title">Venta Bruta mensual · 2015-2026</div><div class="card-meta">Color = intensidad vs el mes de mayor venta del histórico. Hover para ver detalle y YoY</div></div>
-      <div id="projHistBruta"></div>
-    </div>
-    <div class="card full" style="margin-top:14px">
-      <div class="card-header"><div class="card-title">Venta Neta mensual · 2015-2026</div><div class="card-meta">2015-2024 estimada con el % de ROI promedio combinado 2025+2026. Hover para ver detalle y YoY</div></div>
-      <div id="projHistNeta"></div>
+      <div class="section-header" style="margin-top:24px">
+        <div class="section-title">Histórico 2015-2026</div>
+        <div class="section-subtitle" id="projRoiNota">Venta Bruta reportada por año y Venta Neta estimada — base del cálculo de crecimiento y estacionalidad de arriba</div>
+      </div>
+      <div class="card full" style="margin-top:14px">
+        <div class="card-header"><div class="card-title">Venta Bruta mensual · 2015-2026</div><div class="card-meta">Color = intensidad vs el mes de mayor venta del histórico. Hover para ver detalle y YoY</div></div>
+        <div id="projHistBruta"></div>
+      </div>
+      <div class="card full" style="margin-top:14px">
+        <div class="card-header"><div class="card-title">Venta Neta mensual · 2015-2026</div><div class="card-meta">2015-2024 estimada con el % de ROI promedio combinado 2025+2026. Hover para ver detalle y YoY</div></div>
+        <div id="projHistNeta"></div>
+      </div>
     </div>
   </section>
 
