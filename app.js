@@ -1733,6 +1733,25 @@ function renderProyeccion() {
   const vn = projBuildForecast('vn');
   const ut = projBuildForecast('ut');
 
+  // Nota de cobertura: cuántos meses de 2026 ya tienen dato real cargado en Data
+  // Comercial (vb > 0) vs cuántos se completaron con el Forecast por vendedor.
+  // Relevante porque en OOH las campañas suelen cargarse completas desde que se
+  // firman — es común que 2026 ya tenga los 12 meses "reales" aunque el año no
+  // haya terminado, en cuyo caso el cierre estimado coincide con el total actual
+  // (no queda nada por proyectar, no es un error).
+  const notaEl = document.getElementById('projCierreNota');
+  if (notaEl) {
+    const data2026 = Engine.facturable(Engine.applyFilters({ ...filters, anio: 2026 }, { ignoreYear: false }));
+    const mesesReales = new Set(data2026.filter(r => r.vb > 0).map(r => r.mes)).size;
+    if (mesesReales >= 12) {
+      notaEl.textContent = 'Los 12 meses de 2026 ya tienen datos reales cargados en Data Comercial — no queda ningún mes por completar con Forecast, por eso coincide con el total actual.';
+    } else if (mesesReales === 0) {
+      notaEl.textContent = forecastLoaded ? '2026 se completa 100% con el Forecast por vendedor — aún no hay datos reales cargados.' : 'Sin datos reales ni Forecast cargado para 2026.';
+    } else {
+      notaEl.textContent = `${mesesReales} de 12 meses de 2026 ya tienen datos reales; ${12 - mesesReales} se completan con el Forecast por vendedor.`;
+    }
+  }
+
   const fcAnual = (valKey) => {
     if (!forecastLoaded) return 0;
     const fcNeto = Engine.forecastMonthlyTotal(2026).reduce((a, b) => a + b, 0);
