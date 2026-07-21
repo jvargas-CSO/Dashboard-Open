@@ -1658,7 +1658,42 @@ function projBuildForecast(valKey) {
   const totals = {};
   years.forEach(y => { totals[y] = monthly[y].reduce((a, b) => a + b, 0); });
 
-  // Crecimiento año-a-año sobre TODO el histórico disponible (hasta 11 comparaciones con 12 años)
+  // "Comprometido" = lo que hoy ya está cargado en Data Comercial para 2026 (real de los meses
+  // transcurridos + Forecast del resto, si algún mes aún no tiene dato cargado). En OOH las
+  // campañas se cargan completas desde la firma, así que esto suele cubrir ya los 12 meses —
+  // pero eso es solo lo YA VENDIDO a hoy, no una proyección de lo que falta por vender el resto
+  // del año (nuevas campañas que se firmarán entre hoy y diciembre y aún no existen en el archivo).
+  const comprometido26Monthly = monthly[2026].slice();
+  const comprometido26 = totals[2026];
+
+  // Proyección por tendencia: crecimiento histórico promedio SOLO entre años ya cerrados
+  // (2015→2025, sin incluir 2026 que todavía está en curso), aplicado sobre el real de 2025.
+  // Esto estima dónde DEBERÍA cerrar 2026 según el patrón histórico de la empresa,
+  // independientemente de cuánto esté hoy cargado en el archivo.
+  const closedYears = years.filter(y => y <= 2025);
+  const closedGrowths = [];
+  for (let i = 1; i < closedYears.length; i++) {
+    const yPrev = closedYears[i - 1], yCur = closedYears[i];
+    if (totals[yPrev] > 0) closedGrowths.push(totals[yCur] / totals[yPrev] - 1);
+  }
+  const avgGrowthHist = closedGrowths.length ? closedGrowths.reduce((a, b) => a + b, 0) / closedGrowths.length : 0;
+  const tendencia26 = totals[2025] * (1 + avgGrowthHist);
+
+  // Cierre estimado 2026 = lo mayor entre lo ya comprometido (piso real, nunca puede cerrar por
+  // debajo de lo ya vendido) y la proyección por tendencia (si el patrón histórico sugiere un
+  // cierre mayor, porque aún faltan meses por vender). El excedente (venta nueva esperada que
+  // aún no existe en el archivo) se reparte proporcional a la forma estacional ya cargada de
+  // 2026, porque no sabemos en qué mes exacto aterrizará esa venta nueva.
+  const total26 = Math.max(comprometido26, tendencia26);
+  const excedente26 = total26 - comprometido26;
+  const cierre26 = comprometido26 > 0
+    ? comprometido26Monthly.map(v => v + (v / comprometido26) * excedente26)
+    : comprometido26Monthly.map(() => excedente26 / 12);
+  totals[2026] = total26;
+  monthly[2026] = cierre26;
+
+  // Rango conservador/optimista para 2027: crecimiento año-a-año sobre TODO el histórico
+  // (2015-2026, ya con el cierre 2026 corregido arriba).
   const annualGrowths = [];
   for (let i = 1; i < years.length; i++) {
     const yPrev = years[i - 1], yCur = years[i];
@@ -1675,7 +1710,6 @@ function projBuildForecast(valKey) {
     monthly[y].forEach((v, i) => { seasonalIndex[i] += (v / t) / years.length; });
   });
 
-  const total26 = totals[2026];
   const proj2027TotalBase = total26 * (1 + avgGrowth);
   const proj2027TotalCons = total26 * (1 + minGrowth);
   const proj2027TotalOpt = total26 * (1 + maxGrowth);
@@ -1685,7 +1719,8 @@ function projBuildForecast(valKey) {
 
   return {
     years, monthly, totals,
-    real25: monthly[2025], cierre26: monthly[2026], total25: totals[2025], total26,
+    real25: monthly[2025], cierre26, total25: totals[2025], total26,
+    comprometido26, tendencia26, excedente26,
     avgGrowth, minGrowth, maxGrowth, annualGrowths,
     proj2027base, proj2027cons, proj2027opt,
     total2027base: proj2027base.reduce((a, b) => a + b, 0),
@@ -1733,22 +1768,16 @@ function renderProyeccion() {
   const vn = projBuildForecast('vn');
   const ut = projBuildForecast('ut');
 
-  // Nota de cobertura: cuántos meses de 2026 ya tienen dato real cargado en Data
-  // Comercial (vb > 0) vs cuántos se completaron con el Forecast por vendedor.
-  // Relevante porque en OOH las campañas suelen cargarse completas desde que se
-  // firman — es común que 2026 ya tenga los 12 meses "reales" aunque el año no
-  // haya terminado, en cuyo caso el cierre estimado coincide con el total actual
-  // (no queda nada por proyectar, no es un error).
+  // Nota de composición: cuánto de "Cierre estimado 2026" es lo ya comprometido (cargado hoy
+  // en Data Comercial) vs. cuánto es venta nueva esperada según la tendencia histórica de
+  // crecimiento año-a-año — para que quede claro que esto SÍ es una proyección hacia adelante,
+  // no solo un espejo de lo que ya está en el archivo.
   const notaEl = document.getElementById('projCierreNota');
   if (notaEl) {
-    const data2026 = Engine.facturable(Engine.applyFilters({ ...filters, anio: 2026 }, { ignoreYear: false }));
-    const mesesReales = new Set(data2026.filter(r => r.vb > 0).map(r => r.mes)).size;
-    if (mesesReales >= 12) {
-      notaEl.textContent = 'Los 12 meses de 2026 ya tienen datos reales cargados en Data Comercial — no queda ningún mes por completar con Forecast, por eso coincide con el total actual.';
-    } else if (mesesReales === 0) {
-      notaEl.textContent = forecastLoaded ? '2026 se completa 100% con el Forecast por vendedor — aún no hay datos reales cargados.' : 'Sin datos reales ni Forecast cargado para 2026.';
+    if (vb.excedente26 > 1000) {
+      notaEl.textContent = `Ya comprometido en Data Comercial: ${fmtMoneyShort(vb.comprometido26)} · + proyección de venta nueva por tendencia histórica: ${fmtMoneyShort(vb.excedente26)} → Cierre estimado: ${fmtMoneyShort(vb.total26)}.`;
     } else {
-      notaEl.textContent = `${mesesReales} de 12 meses de 2026 ya tienen datos reales; ${12 - mesesReales} se completan con el Forecast por vendedor.`;
+      notaEl.textContent = `Lo ya comprometido (${fmtMoneyShort(vb.comprometido26)}) ya iguala o supera la proyección por tendencia histórica (${fmtMoneyShort(vb.tendencia26)}) — el cierre estimado usa el comprometido como piso.`;
     }
   }
 
