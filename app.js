@@ -736,76 +736,65 @@ function renderResumen() {
     return totFC.map(v => v * ratio);
   }
 
-  // Estructura exacta del reporte de finanzas: una fila de venta por empresa (Entretenimiento,
-  // Servicios), una fila "Suma total" (Grupo Open, resaltada), y — solo para Ventas Brutas/Netas —
-  // una única fila "Forecast" y una única fila "Alcance" a nivel Grupo Open (no por empresa).
-  // Rentabilidad no lleva Forecast/Alcance: en su lugar cada empresa (y el Grupo Open) llevan
-  // su propia fila de % además de la de $.
+  // Estructura exacta del reporte de finanzas — IDÉNTICA en las 3 tablas (Brutas/Netas/
+  // Rentabilidad), solo cambia la métrica: una fila de venta por empresa (Entretenimiento,
+  // Servicios), una fila "Suma total" (Grupo Open, resaltada), una fila "Forecast" y una fila
+  // "Alcance" — ambas a nivel Grupo Open únicamente. La fila "Alcance" trae DOS valores
+  // apilados por celda: la diferencia en $ (Real − Forecast) arriba, y el % (Real/Forecast)
+  // abajo — igual que en finanzas.
   function buildEmpresaTable(title, valKey, fcType) {
     let html = `<div class="card-header"><div class="card-title">${title}</div><div class="card-meta">${filters.anio || 'Todos los años'}${showFC ? ` · ROI ${yActual-1}: ${(roiPct*100).toFixed(2)}%` : ''}</div></div>`;
     html += '<div class="table-wrap"><table>';
     html += '<thead class="top"><tr><th>Empresa</th>';
     MESES_FULL.forEach(m=>html+=`<th class="num">${m}</th>`);
-    html += '<th class="num">Total</th></tr></thead><tbody>';
-
-    const esRent = fcType === null;
+    html += '<th class="num">Suma total</th></tr></thead><tbody>';
 
     const buildVentaRow = (label, sub, isGrupoOpen) => {
       const valsReal = Engine.monthly(sub, valKey);
       const totReal = valsReal.reduce((a,b)=>a+b,0);
-      let row = `<tr ${isGrupoOpen ? 'class="subtotal-row"' : ''}><td class="row-label">${esRent ? 'Rentabilidad $ ' : ''}${label}</td>`;
+      let row = `<tr ${isGrupoOpen ? 'class="subtotal-row"' : ''}><td class="row-label">${label}</td>`;
       valsReal.forEach(v => row += `<td class="num">${fmtMoney(v)}</td>`);
       row += `<td class="num"><b>${fmtMoney(totReal)}</b></td></tr>`;
-      if (esRent) {
-        const valsNeta = Engine.monthly(sub, 'vn');
-        const margenes = valsNeta.map((vn,i) => vn ? valsReal[i]/vn*100 : 0);
-        row += `<tr><td class="row-label">Rentabilidad % ${label}</td>`;
-        margenes.forEach(p => {
-          const cls = p>=30?'alc-good':p>=15?'alc-warn':p<0?'alc-bad':'';
-          row += `<td class="num ${cls}">${fmtPct(p)}</td>`;
-        });
-        const totVN = valsNeta.reduce((a,b)=>a+b,0);
-        const totMg = totVN ? totReal/totVN*100 : 0;
-        const clsTot = totMg>=30?'alc-good':totMg>=15?'alc-warn':totMg<0?'alc-bad':'';
-        row += `<td class="num ${clsTot}"><b>${fmtPct(totMg)}</b></td></tr>`;
-      }
-      return { row, totReal };
+      return { row, valsReal, totReal };
     };
 
     empresas.forEach(emp => {
       const { row } = buildVentaRow(emp, fact.filter(r=>r.emp===emp), false);
       html += row;
     });
-    const { row: rowGrupoOpen, totReal: totGrupoOpen } = buildVentaRow(esRent ? '(Grupo Open)' : 'Suma total', fact, true);
+    const { row: rowGrupoOpen, valsReal: valsGO, totReal: totGrupoOpen } = buildVentaRow('Suma total', fact, true);
     html += rowGrupoOpen;
 
-    if (!esRent && showFC) {
+    if (showFC) {
       const fcNeto = forecastNetoMensual('Grupo Open') || Array(12).fill(0);
-      const fcVals = fcType === 'bruto' ? fcNeto.map(v=>Engine.forecastBrutoFromNeto(v, yActual)) : fcNeto;
+      const fcVals = fcType === 'bruto' ? fcNeto.map(v=>Engine.forecastBrutoFromNeto(v, yActual))
+                     : fcType === 'rent' ? fcNeto.map(v=>v*MARGEN_OBJETIVO)
+                     : fcNeto;
       const totFC = fcVals.reduce((a,b)=>a+b,0);
       html += `<tr><td class="row-label">Forecast</td>`;
       fcVals.forEach(v => html += `<td class="num" style="color:var(--text-muted)">${fmtMoney(v)}</td>`);
       html += `<td class="num" style="color:var(--text-muted)"><b>${fmtMoney(totFC)}</b></td></tr>`;
 
-      const valsGO = Engine.monthly(fact, valKey);
-      const alcRow = fcVals.map((f,i) => f ? valsGO[i]/f*100 : null);
-      const totAlc = totFC ? totGrupoOpen/totFC*100 : null;
+      const buildAlcanceCell = (real, f) => {
+        if (!f) return '<td class="num">—</td>';
+        const diff = real - f;
+        const pct = real / f * 100;
+        const cls = diff >= 0 ? 'pos' : 'neg';
+        return `<td class="num"><b class="${cls}">${fmtMoneyShort(diff)}</b><br><span style="font-size:11px;color:var(--text-muted)">${fmtPct(pct)}</span></td>`;
+      };
       html += `<tr><td class="row-label">Alcance</td>`;
-      alcRow.forEach(p => {
-        const cls = p === null ? '' : p>=100?'alc-good':p>=80?'alc-warn':'alc-bad';
-        html += `<td class="num ${cls}">${p===null?'—':fmtPct(p)}</td>`;
-      });
-      const clsTot = totAlc===null?'' : totAlc>=100?'alc-good':totAlc>=80?'alc-warn':'alc-bad';
-      html += `<td class="num ${clsTot}"><b>${totAlc===null?'—':fmtPct(totAlc)}</b></td></tr>`;
+      valsGO.forEach((real, i) => html += buildAlcanceCell(real, fcVals[i]));
+      html += buildAlcanceCell(totGrupoOpen, totFC);
+      html += `</tr>`;
     }
 
     html += '</tbody></table></div>';
     return html;
   }
 
-  document.getElementById('cardBrutaEmp').innerHTML = buildEmpresaTable('✅ Ventas Brutas (con ROI)', 'vb', 'bruto');
-  document.getElementById('cardNetaEmp').innerHTML = buildEmpresaTable('💵 Ventas Netas (sin ROI)', 'vn', 'neto');
-  document.getElementById('cardRentEmp').innerHTML = buildEmpresaTable('💰 Rentabilidad (Utilidad por línea)', 'ut', null);
+  document.getElementById('cardBrutaEmp').innerHTML = buildEmpresaTable(`✅ Ventas Brutas ${yActual}`, 'vb', 'bruto');
+  document.getElementById('cardNetaEmp').innerHTML = buildEmpresaTable(`💵 Ventas Netas ${yActual}`, 'vn', 'neto');
+  document.getElementById('cardRentEmp').innerHTML = buildEmpresaTable(`💰 Rentabilidad Ventas ${yActual}`, 'ut', 'rent');
 }
 
 // === Sparkline como path SVG (sin viewBox interno, para que sea responsive) ===
