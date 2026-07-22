@@ -736,6 +736,11 @@ function renderResumen() {
     return totFC.map(v => v * ratio);
   }
 
+  // Estructura exacta del reporte de finanzas: una fila de venta por empresa (Entretenimiento,
+  // Servicios), una fila "Suma total" (Grupo Open, resaltada), y — solo para Ventas Brutas/Netas —
+  // una única fila "Forecast" y una única fila "Alcance" a nivel Grupo Open (no por empresa).
+  // Rentabilidad no lleva Forecast/Alcance: en su lugar cada empresa (y el Grupo Open) llevan
+  // su propia fila de % además de la de $.
   function buildEmpresaTable(title, valKey, fcType) {
     let html = `<div class="card-header"><div class="card-title">${title}</div><div class="card-meta">${filters.anio || 'Todos los años'}${showFC ? ` · ROI ${yActual-1}: ${(roiPct*100).toFixed(2)}%` : ''}</div></div>`;
     html += '<div class="table-wrap"><table>';
@@ -743,61 +748,56 @@ function renderResumen() {
     MESES_FULL.forEach(m=>html+=`<th class="num">${m}</th>`);
     html += '<th class="num">Total</th></tr></thead><tbody>';
 
-    const empresasMostrar = [...empresas, 'Grupo Open'];
-    empresasMostrar.forEach((emp) => {
-      const sub = emp === 'Grupo Open' ? fact : fact.filter(r=>r.emp===emp);
+    const esRent = fcType === null;
+
+    const buildVentaRow = (label, sub, isGrupoOpen) => {
       const valsReal = Engine.monthly(sub, valKey);
       const totReal = valsReal.reduce((a,b)=>a+b,0);
-
-      let fcRow = null;
-      let alcRow = null;
-      if (showFC && fcType !== null) {
-        const fcNeto = forecastNetoMensual(emp) || Array(12).fill(0);
-        const fcVals = fcType === 'bruto' ? fcNeto.map(v=>Engine.forecastBrutoFromNeto(v, yActual))
-                       : fcType === 'neto' ? fcNeto
-                       : fcType === 'rent' ? null : null;
-        if (fcVals) {
-          fcRow = fcVals;
-          alcRow = fcVals.map((f,i) => f ? valsReal[i]/f*100 : null);
-        }
-      }
-
-      if (fcRow) {
-        html += `<tr><td class="row-label">Forecast ${title.includes('Brutas')?'Bruto':title.includes('Netas')?'Neto':''} ${emp==='Grupo Open'?'<b>(Grupo Open)</b>':emp}</td>`;
-        fcRow.forEach(v => html += `<td class="num" style="color:var(--text-muted)">${fmtMoney(v)}</td>`);
-        html += `<td class="num" style="color:var(--text-muted)"><b>${fmtMoney(fcRow.reduce((a,b)=>a+b,0))}</b></td></tr>`;
-      }
-      const labelVenta = title.includes('Brutas') ? 'Venta Bruta' : title.includes('Netas') ? 'Venta Neta' : 'Rentabilidad $';
-      html += `<tr ${emp==='Grupo Open'?'class="subtotal-row"':''}><td class="row-label">${labelVenta} ${emp==='Grupo Open'?'<b>(Grupo Open)</b>':emp}</td>`;
-      valsReal.forEach(v => html += `<td class="num">${fmtMoney(v)}</td>`);
-      html += `<td class="num"><b>${fmtMoney(totReal)}</b></td></tr>`;
-
-      if (alcRow) {
-        html += `<tr><td class="row-label">Alcance Forecast ${emp==='Grupo Open'?'<b>(Grupo Open)</b>':emp}</td>`;
-        const totFC = fcRow.reduce((a,b)=>a+b,0);
-        alcRow.forEach(p => {
-          const cls = p === null ? '' : p>=100?'alc-good':p>=80?'alc-warn':'alc-bad';
-          html += `<td class="num ${cls}">${p===null?'—':fmtPct(p)}</td>`;
-        });
-        const totAlc = totFC ? totReal/totFC*100 : null;
-        const cls = totAlc===null?'' : totAlc>=100?'alc-good':totAlc>=80?'alc-warn':'alc-bad';
-        html += `<td class="num ${cls}"><b>${totAlc===null?'—':fmtPct(totAlc)}</b></td></tr>`;
-      }
-
-      if (title.includes('Rentabilidad')) {
+      let row = `<tr ${isGrupoOpen ? 'class="subtotal-row"' : ''}><td class="row-label">${esRent ? 'Rentabilidad $ ' : ''}${label}</td>`;
+      valsReal.forEach(v => row += `<td class="num">${fmtMoney(v)}</td>`);
+      row += `<td class="num"><b>${fmtMoney(totReal)}</b></td></tr>`;
+      if (esRent) {
         const valsNeta = Engine.monthly(sub, 'vn');
         const margenes = valsNeta.map((vn,i) => vn ? valsReal[i]/vn*100 : 0);
-        html += `<tr><td class="row-label">Rentabilidad %  ${emp==='Grupo Open'?'<b>(Grupo Open)</b>':emp}</td>`;
+        row += `<tr><td class="row-label">Rentabilidad % ${label}</td>`;
         margenes.forEach(p => {
           const cls = p>=30?'alc-good':p>=15?'alc-warn':p<0?'alc-bad':'';
-          html += `<td class="num ${cls}">${fmtPct(p)}</td>`;
+          row += `<td class="num ${cls}">${fmtPct(p)}</td>`;
         });
         const totVN = valsNeta.reduce((a,b)=>a+b,0);
         const totMg = totVN ? totReal/totVN*100 : 0;
         const clsTot = totMg>=30?'alc-good':totMg>=15?'alc-warn':totMg<0?'alc-bad':'';
-        html += `<td class="num ${clsTot}"><b>${fmtPct(totMg)}</b></td></tr>`;
+        row += `<td class="num ${clsTot}"><b>${fmtPct(totMg)}</b></td></tr>`;
       }
+      return { row, totReal };
+    };
+
+    empresas.forEach(emp => {
+      const { row } = buildVentaRow(emp, fact.filter(r=>r.emp===emp), false);
+      html += row;
     });
+    const { row: rowGrupoOpen, totReal: totGrupoOpen } = buildVentaRow(esRent ? '(Grupo Open)' : 'Suma total', fact, true);
+    html += rowGrupoOpen;
+
+    if (!esRent && showFC) {
+      const fcNeto = forecastNetoMensual('Grupo Open') || Array(12).fill(0);
+      const fcVals = fcType === 'bruto' ? fcNeto.map(v=>Engine.forecastBrutoFromNeto(v, yActual)) : fcNeto;
+      const totFC = fcVals.reduce((a,b)=>a+b,0);
+      html += `<tr><td class="row-label">Forecast</td>`;
+      fcVals.forEach(v => html += `<td class="num" style="color:var(--text-muted)">${fmtMoney(v)}</td>`);
+      html += `<td class="num" style="color:var(--text-muted)"><b>${fmtMoney(totFC)}</b></td></tr>`;
+
+      const valsGO = Engine.monthly(fact, valKey);
+      const alcRow = fcVals.map((f,i) => f ? valsGO[i]/f*100 : null);
+      const totAlc = totFC ? totGrupoOpen/totFC*100 : null;
+      html += `<tr><td class="row-label">Alcance</td>`;
+      alcRow.forEach(p => {
+        const cls = p === null ? '' : p>=100?'alc-good':p>=80?'alc-warn':'alc-bad';
+        html += `<td class="num ${cls}">${p===null?'—':fmtPct(p)}</td>`;
+      });
+      const clsTot = totAlc===null?'' : totAlc>=100?'alc-good':totAlc>=80?'alc-warn':'alc-bad';
+      html += `<td class="num ${clsTot}"><b>${totAlc===null?'—':fmtPct(totAlc)}</b></td></tr>`;
+    }
 
     html += '</tbody></table></div>';
     return html;
