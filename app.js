@@ -229,9 +229,12 @@ function bootDashboard() {
   populateFilters();
   attachListeners();
   updateHeaderInfo();
-  // Año más reciente como default
+  // Año en curso como default (no el más reciente disponible — con campañas multi-año ya
+  // es posible tener datos de años futuros como 2027/2028, y el dashboard debe abrir en el
+  // año actual, no en el último año con datos).
   if (Engine.yearsAvailable.length > 0) {
-    filters.anio = String(Math.max(...Engine.yearsAvailable));
+    const currentYear = new Date().getFullYear();
+    filters.anio = String(Engine.yearsAvailable.includes(currentYear) ? currentYear : Math.max(...Engine.yearsAvailable));
     document.getElementById('f-anio').value = filters.anio;
   }
   // Vendedor inicial
