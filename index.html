@@ -202,6 +202,7 @@ body {
   letter-spacing: 0.2px;
 }
 .tag.green { background: rgba(31,157,110,0.12); color: var(--success); border-color: rgba(31,157,110,0.25); }
+.tag.warn { background: rgba(217,90,40,0.14); color: var(--danger); border-color: rgba(217,90,40,0.3); cursor: help; }
 .btn {
   background: var(--primary);
   color: white;
@@ -895,6 +896,7 @@ tbody tr:hover { background: var(--bg-card-hover); }
   <div class="tb-actions">
     <span class="tag" id="dataInfo">— registros</span>
     <span class="tag" id="fcInfo" style="display:none">Forecast cargado</span>
+    <span class="tag warn" id="fcWarnInfo" style="display:none"></span>
     <button class="btn btn-ghost" id="btnRefreshDrive" title="Vuelve a leer Data Comercial y Forecast desde Google Drive">↻ Actualizar desde Drive</button>
     <label class="btn btn-ghost" style="margin:0" title="Reemplaza el Forecast actual con un archivo local">
       ↑ Forecast

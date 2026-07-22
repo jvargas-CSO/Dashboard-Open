@@ -499,6 +499,7 @@ function processDataWorkbook(workbook) {
 // =========================================================================
 function processForecastWorkbook(workbook, year=2026) {
   const records = [];
+  const warnings = [];
   const meses = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
   workbook.SheetNames.forEach(sheetName => {
     const sheet = workbook.Sheets[sheetName];
@@ -508,7 +509,16 @@ function processForecastWorkbook(workbook, year=2026) {
       const cli = titleCase(r['Cliente Comercial'] || r['Cliente'] || '');
       if (!eje || !cli) return;
       meses.forEach((mes, idx) => {
-        const v = num(r[mes]);
+        const raw = r[mes];
+        const v = num(raw);
+        // Si la celda trae algo (no está vacía) pero no es un número real y no truena como 0
+        // explícito (ej. un error de fórmula tipo #REF!/#N/A), num() la convierte en 0 en
+        // silencio — eso hace que ese mes "desaparezca" del forecast sin ningún aviso. Se
+        // detecta aquí y se reporta como warning en vez de dejarlo pasar como si no hubiera
+        // forecast ese mes.
+        if (v === 0 && raw != null && raw !== '' && typeof raw !== 'number' && !/^\s*0(\.0+)?\s*$/.test(String(raw))) {
+          warnings.push(`${eje} · ${cli} · ${mes}: valor no numérico "${raw}"`);
+        }
         if (v > 0) records.push({
           anio: year,
           mes: idx + 1,
@@ -518,7 +528,7 @@ function processForecastWorkbook(workbook, year=2026) {
       });
     });
   });
-  return records;
+  return { records, warnings };
 }
 
 // =========================================================================

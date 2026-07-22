@@ -71,6 +71,7 @@ let charts = {};
 let selectedVendedor = '';
 let acVendedor = '';
 let selectedCM = '';
+let forecastWarnings = [];
 let dataLoaded = false;
 let forecastLoaded = false;
 let iaAutoInsightsGenerated = false;
@@ -142,12 +143,14 @@ async function loadFromDriveAndBoot({ silent = false } = {}) {
     if (!silent) setDzStatus('Cargando Forecast (Google Drive)…');
     try {
       const wbFc = await fetchWorkbookFromDrive(DRIVE_SHEETS.forecast);
-      const fcRecords = processForecastWorkbook(wbFc, 2026);
+      const { records: fcRecords, warnings: fcWarnings } = processForecastWorkbook(wbFc, 2026);
       Engine.loadForecast(fcRecords, { name: 'Forecast (Drive)' });
       forecastLoaded = true;
+      forecastWarnings = fcWarnings;
     } catch (fcErr) {
       console.error('No se pudo cargar el Forecast desde Drive:', fcErr);
       forecastLoaded = false;
+      forecastWarnings = [];
     }
 
     if (silent) {
@@ -181,6 +184,14 @@ function updateHeaderInfo() {
     fc.classList.remove('green');
     fc.textContent = 'Forecast no disponible — sube uno manual';
   }
+  const fcWarn = document.getElementById('fcWarnInfo');
+  if (forecastWarnings.length > 0) {
+    fcWarn.style.display = 'inline-flex';
+    fcWarn.textContent = `⚠️ ${forecastWarnings.length} celda${forecastWarnings.length === 1 ? '' : 's'} de Forecast con error`;
+    fcWarn.title = 'Estas celdas del archivo de Forecast no traen un número válido (probablemente un error de fórmula tipo #REF!/#N/A) y se están tratando como sin forecast ese mes:\n\n' + forecastWarnings.slice(0, 30).join('\n') + (forecastWarnings.length > 30 ? `\n… y ${forecastWarnings.length - 30} más.` : '');
+  } else {
+    fcWarn.style.display = 'none';
+  }
 }
 
 function loadForecastFile(file) {
@@ -191,9 +202,10 @@ function loadForecastFile(file) {
   reader.onload = e => {
     try {
       const wb = XLSX.read(new Uint8Array(e.target.result), { type:'array', cellDates:true });
-      const records = processForecastWorkbook(wb, 2026);
+      const { records, warnings } = processForecastWorkbook(wb, 2026);
       Engine.loadForecast(records, { name: file.name });
       forecastLoaded = true;
+      forecastWarnings = warnings;
       populateFilters();
       updateHeaderInfo();
       render();
