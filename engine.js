@@ -420,7 +420,14 @@ function processDataWorkbook(workbook) {
       if (!status || (vb === 0 && num(get('ventaNeta')) === 0)) return;
 
       const mes = int(get('mes'));
-      const anio = year;
+      // El año real de cada renglón viene de su propia columna "Año" — no del nombre de la
+      // pestaña. Es común que una pestaña "2026" incluya renglones de campañas multi-año
+      // (ej. un contrato firmado en 2026 con servicio programado hasta 2027/2028) — usar el
+      // nombre de la pestaña para todos los renglones los cuenta erróneamente como venta del
+      // año de la pestaña. Si un renglón no trae su propia columna Año, se usa el nombre de la
+      // pestaña como respaldo.
+      const rowAnio = int(get('anio'));
+      const anio = rowAnio > 0 ? rowAnio : year;
       const ejecutivo = normEjecutivo(get('ejecutivo'));
       const cliente = (get('cliente') || 'Sin definir').toString().trim();
       const holding = (get('holding') || 'Sin definir').toString().trim();
