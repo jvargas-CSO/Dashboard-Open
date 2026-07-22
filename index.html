@@ -806,10 +806,6 @@ tbody tr:hover { background: var(--bg-card-hover); }
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>
         <span class="nav-item-text">Resumen</span>
       </button>
-      <button class="nav-item nav-desktop-only" data-tab="empresa">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18M5 21V7l8-4v18M19 21V11l-6-4"/><path d="M9 9h.01M9 13h.01M9 17h.01"/></svg>
-        <span class="nav-item-text">Por Empresa</span>
-      </button>
       <button class="nav-item nav-desktop-only" data-tab="vendedor">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
         <span class="nav-item-text">Por Vendedor</span>
@@ -932,31 +928,10 @@ tbody tr:hover { background: var(--bg-card-hover); }
   <section class="section active" id="sec-resumen">
     <div class="resumen-insights" id="resumenInsights"></div>
     <div class="kpi-grid kpi-grid-big" id="kpis"></div>
-    <div class="cards-grid">
-      <div class="card full">
-        <div class="card-header"><div class="card-title">Venta Bruta mensual · Real vs Forecast vs Año pasado</div></div>
-        <div class="chart-container"><canvas id="ch-vbMes"></canvas></div>
-      </div>
-      <div class="card full">
-        <div class="card-header"><div class="card-title">Venta Neta mensual · Real vs Forecast vs Año pasado</div></div>
-        <div class="chart-container"><canvas id="ch-vnMes"></canvas></div>
-      </div>
-      <div class="card full">
-        <div class="card-header"><div class="card-title">Utilidad por línea mensual · Real vs Forecast vs Año pasado</div><div class="card-meta">Forecast Utilidad = Forecast Neto × 32%</div></div>
-        <div class="chart-container"><canvas id="ch-utMes"></canvas></div>
-      </div>
-      <div class="card full">
-        <div class="card-header"><div class="card-title">Directo vs Agencia · Venta Bruta + Utilidad</div></div>
-        <div class="chart-container"><canvas id="ch-canal"></canvas></div>
-      </div>
-    </div>
-  </section>
-
-  <section class="section" id="sec-empresa">
-    <div class="alert info">🏢 Tablas mensuales por <b>Entretenimiento</b>, <b>Servicios</b> y <b>Grupo Open</b> (suma de ambas). Forecast Bruto = Forecast Neto / (1 − ROI% del año anterior).</div>
-    <div class="card full" id="cardBrutaEmp"></div>
-    <div class="card full" id="cardNetaEmp" style="margin-top:14px"></div>
-    <div class="card full" id="cardRentEmp" style="margin-top:14px"></div>
+    <div class="alert info mobile-hide" style="margin-top:14px">🏢 Tablas mensuales por <b>Entretenimiento</b>, <b>Servicios</b> y <b>Grupo Open</b> (suma de ambas). Forecast Bruto = Forecast Neto / (1 − ROI% del año anterior).</div>
+    <div class="card full mobile-hide" id="cardBrutaEmp"></div>
+    <div class="card full mobile-hide" id="cardNetaEmp" style="margin-top:14px"></div>
+    <div class="card full mobile-hide" id="cardRentEmp" style="margin-top:14px"></div>
   </section>
 
   <section class="section" id="sec-vendedor">

@@ -473,7 +473,6 @@ function render() {
   const tab = document.querySelector('.nav-item.active').dataset.tab;
   switch(tab) {
     case 'resumen': renderResumen(); break;
-    case 'empresa': renderEmpresa(); break;
     case 'vendedor': renderVendedor(); break;
     case 'alcanceCliente': renderAlcanceCliente(); break;
     case 'comparativo': renderComparativo(); break;
@@ -718,82 +717,92 @@ function renderResumen() {
     fact, factPrev, t, tP, yActual, yPrev, showFC, fcBrutoTotal, comTotal, comTotalPrev,
   }));
 
-  // === 3 Gráficas Lineales: Real vs Forecast vs Año Pasado ===
-  const buildLineDatasets = (real, fc, prev) => {
-    const ds = [
-      { label: 'Real ' + yActual, data: real, borderColor: '#d9662c', backgroundColor: 'rgba(217,102,44,0.12)', tension: 0.35, borderWidth: 3, pointRadius: 4, pointBackgroundColor:'#d9662c', fill: true },
-    ];
-    if (showFC) ds.push({
-      label: 'Forecast ' + yActual,
-      data: fc,
-      borderColor: '#7c3aed',
-      backgroundColor: 'transparent',
-      tension: 0.35,
-      borderWidth: 2.5,
-      borderDash: [6, 4],
-      pointRadius: 3,
-      pointBackgroundColor: '#7c3aed',
-      fill: false
+  // === Tablas mensuales por Empresa (Entretenimiento / Servicios / Grupo Open), estilo finanzas ===
+  const empresas = ['Entretenimiento','Servicios'].filter(e => fact.some(r=>r.emp===e));
+
+  // Forecast NETO mensual del Grupo Open o Empresa específica. Como el forecast es por
+  // vendedor sin distinguir empresa, para el split Entretenimiento/Servicios se usa la
+  // proporción de ventas reales del año.
+  function forecastNetoMensual(emp) {
+    if (!showFC) return null;
+    const totFC = Engine.forecastMonthlyTotal(yActual);
+    if (emp === 'Grupo Open') return totFC;
+    const totVN = fact.filter(r=>r.anio===yActual).reduce((a,r)=>a+r.vn,0);
+    const empVN = fact.filter(r=>r.anio===yActual && r.emp===emp).reduce((a,r)=>a+r.vn,0);
+    const ratio = totVN ? empVN/totVN : 0;
+    return totFC.map(v => v * ratio);
+  }
+
+  function buildEmpresaTable(title, valKey, fcType) {
+    let html = `<div class="card-header"><div class="card-title">${title}</div><div class="card-meta">${filters.anio || 'Todos los años'}${showFC ? ` · ROI ${yActual-1}: ${(roiPct*100).toFixed(2)}%` : ''}</div></div>`;
+    html += '<div class="table-wrap"><table>';
+    html += '<thead class="top"><tr><th>Empresa</th>';
+    MESES_FULL.forEach(m=>html+=`<th class="num">${m}</th>`);
+    html += '<th class="num">Total</th></tr></thead><tbody>';
+
+    const empresasMostrar = [...empresas, 'Grupo Open'];
+    empresasMostrar.forEach((emp) => {
+      const sub = emp === 'Grupo Open' ? fact : fact.filter(r=>r.emp===emp);
+      const valsReal = Engine.monthly(sub, valKey);
+      const totReal = valsReal.reduce((a,b)=>a+b,0);
+
+      let fcRow = null;
+      let alcRow = null;
+      if (showFC && fcType !== null) {
+        const fcNeto = forecastNetoMensual(emp) || Array(12).fill(0);
+        const fcVals = fcType === 'bruto' ? fcNeto.map(v=>Engine.forecastBrutoFromNeto(v, yActual))
+                       : fcType === 'neto' ? fcNeto
+                       : fcType === 'rent' ? null : null;
+        if (fcVals) {
+          fcRow = fcVals;
+          alcRow = fcVals.map((f,i) => f ? valsReal[i]/f*100 : null);
+        }
+      }
+
+      if (fcRow) {
+        html += `<tr><td class="row-label">Forecast ${title.includes('Brutas')?'Bruto':title.includes('Netas')?'Neto':''} ${emp==='Grupo Open'?'<b>(Grupo Open)</b>':emp}</td>`;
+        fcRow.forEach(v => html += `<td class="num" style="color:var(--text-muted)">${fmtMoney(v)}</td>`);
+        html += `<td class="num" style="color:var(--text-muted)"><b>${fmtMoney(fcRow.reduce((a,b)=>a+b,0))}</b></td></tr>`;
+      }
+      const labelVenta = title.includes('Brutas') ? 'Venta Bruta' : title.includes('Netas') ? 'Venta Neta' : 'Rentabilidad $';
+      html += `<tr ${emp==='Grupo Open'?'class="subtotal-row"':''}><td class="row-label">${labelVenta} ${emp==='Grupo Open'?'<b>(Grupo Open)</b>':emp}</td>`;
+      valsReal.forEach(v => html += `<td class="num">${fmtMoney(v)}</td>`);
+      html += `<td class="num"><b>${fmtMoney(totReal)}</b></td></tr>`;
+
+      if (alcRow) {
+        html += `<tr><td class="row-label">Alcance Forecast ${emp==='Grupo Open'?'<b>(Grupo Open)</b>':emp}</td>`;
+        const totFC = fcRow.reduce((a,b)=>a+b,0);
+        alcRow.forEach(p => {
+          const cls = p === null ? '' : p>=100?'alc-good':p>=80?'alc-warn':'alc-bad';
+          html += `<td class="num ${cls}">${p===null?'—':fmtPct(p)}</td>`;
+        });
+        const totAlc = totFC ? totReal/totFC*100 : null;
+        const cls = totAlc===null?'' : totAlc>=100?'alc-good':totAlc>=80?'alc-warn':'alc-bad';
+        html += `<td class="num ${cls}"><b>${totAlc===null?'—':fmtPct(totAlc)}</b></td></tr>`;
+      }
+
+      if (title.includes('Rentabilidad')) {
+        const valsNeta = Engine.monthly(sub, 'vn');
+        const margenes = valsNeta.map((vn,i) => vn ? valsReal[i]/vn*100 : 0);
+        html += `<tr><td class="row-label">Rentabilidad %  ${emp==='Grupo Open'?'<b>(Grupo Open)</b>':emp}</td>`;
+        margenes.forEach(p => {
+          const cls = p>=30?'alc-good':p>=15?'alc-warn':p<0?'alc-bad':'';
+          html += `<td class="num ${cls}">${fmtPct(p)}</td>`;
+        });
+        const totVN = valsNeta.reduce((a,b)=>a+b,0);
+        const totMg = totVN ? totReal/totVN*100 : 0;
+        const clsTot = totMg>=30?'alc-good':totMg>=15?'alc-warn':totMg<0?'alc-bad':'';
+        html += `<td class="num ${clsTot}"><b>${fmtPct(totMg)}</b></td></tr>`;
+      }
     });
-    if (yPrev && prev.some(v => v > 0)) ds.push({
-      label: String(yPrev),
-      data: prev,
-      borderColor: '#6b7280',
-      backgroundColor: 'transparent',
-      tension: 0.35,
-      borderWidth: 2,
-      pointRadius: 3,
-      pointBackgroundColor: '#6b7280',
-      fill: false
-    });
-    return ds;
-  };
 
-  drawChart('ch-vbMes', {
-    type:'line',
-    data:{ labels: MESES, datasets: buildLineDatasets(realVB, fcBrutoMonthly, prevVB) },
-    options: lineOpts({money:true})
-  });
-  drawChart('ch-vnMes', {
-    type:'line',
-    data:{ labels: MESES, datasets: buildLineDatasets(realVN, fcNetoMonthly, prevVN) },
-    options: lineOpts({money:true})
-  });
-  drawChart('ch-utMes', {
-    type:'line',
-    data:{ labels: MESES, datasets: buildLineDatasets(realUT, fcUtilMonthly, prevUT) },
-    options: lineOpts({money:true})
-  });
+    html += '</tbody></table></div>';
+    return html;
+  }
 
-  // === Directo vs Agencia: barras agrupadas con Venta Bruta + Utilidad ===
-  const dirRows = fact.filter(r => r.cc === 'Directo');
-  const agRows = fact.filter(r => r.cc === 'Agencia');
-  const dirVB = dirRows.reduce((a,r)=>a+r.vb,0);
-  const agVB = agRows.reduce((a,r)=>a+r.vb,0);
-  const dirUT = dirRows.reduce((a,r)=>a+r.ut,0);
-  const agUT = agRows.reduce((a,r)=>a+r.ut,0);
-  const dirVN = dirRows.reduce((a,r)=>a+r.vn,0);
-  const agVN = agRows.reduce((a,r)=>a+r.vn,0);
-  const dirMg = dirVN ? (dirUT/dirVN*100) : 0;
-  const agMg = agVN ? (agUT/agVN*100) : 0;
-
-  drawChart('ch-canal', {
-    type:'bar',
-    data:{
-      labels: [`Directo · Mgn ${fmtPct(dirMg)}`, `Agencia · Mgn ${fmtPct(agMg)}`],
-      datasets:[
-        {label:'Venta Bruta', data:[dirVB, agVB], backgroundColor:'rgba(217,102,44,0.85)', borderRadius:6, borderSkipped: false},
-        {label:'Utilidad por línea', data:[dirUT, agUT], backgroundColor:'rgba(31,157,110,0.85)', borderRadius:6, borderSkipped: false},
-      ]
-    },
-    options: barOpts({money:true, onClickFilter: (label) => {
-      // El label viene con "Directo · Mgn X%" o "Agencia · Mgn X%" — extraer
-      const canal = label.startsWith('Directo') ? 'Directo' : 'Agencia';
-      filters.cc = filters.cc === canal ? '' : canal;
-      const sel = document.getElementById('f-cc'); if (sel) sel.value = filters.cc;
-      render();
-    }})
-  });
+  document.getElementById('cardBrutaEmp').innerHTML = buildEmpresaTable('✅ Ventas Brutas (con ROI)', 'vb', 'bruto');
+  document.getElementById('cardNetaEmp').innerHTML = buildEmpresaTable('💵 Ventas Netas (sin ROI)', 'vn', 'neto');
+  document.getElementById('cardRentEmp').innerHTML = buildEmpresaTable('💰 Rentabilidad (Utilidad por línea)', 'ut', null);
 }
 
 // === Sparkline como path SVG (sin viewBox interno, para que sea responsive) ===
@@ -814,111 +823,6 @@ function sparklinePath(data, color='#d9662c', w=200, h=36) {
     </linearGradient></defs>
     <path d="${areaPath}" fill="url(#${id})"/>
     <polyline points="${polyline}" fill="none" stroke="${color}" stroke-width="2"/>`;
-}
-
-// =========================================================================
-// POR EMPRESA · 3 tablas + Grupo Open
-// =========================================================================
-function renderEmpresa() {
-  const data = Engine.applyFilters(filters);
-  const fact = Engine.facturable(data);
-  const empresas = ['Entretenimiento','Servicios'].filter(e => fact.some(r=>r.emp===e));
-  const yActual = parseInt(filters.anio) || (Engine.yearsAvailable.length ? Math.max(...Engine.yearsAvailable) : 2026);
-  const showFC = forecastLoaded && yActual === 2026;
-  const roiPct = Engine.roiPctParaForecastBruto(yActual);
-
-  // Helper: forecast NETO mensual del Grupo Open o Empresa específica
-  // Como el forecast es por vendedor sin distinguir empresa, asumimos:
-  //  - Forecast Grupo Open = total del forecast del año
-  //  - Para split Entretenimiento/Servicios usamos proporción de ventas reales del año
-  function forecastNetoMensual(emp) {
-    if (!showFC) return null;
-    const totFC = Engine.forecastMonthlyTotal(yActual);
-    if (emp === 'Grupo Open') return totFC;
-    // Calcular proporción de empresa basado en ventas reales del año
-    const totVN = fact.filter(r=>r.anio===yActual).reduce((a,r)=>a+r.vn,0);
-    const empVN = fact.filter(r=>r.anio===yActual && r.emp===emp).reduce((a,r)=>a+r.vn,0);
-    const ratio = totVN ? empVN/totVN : 0;
-    return totFC.map(v => v * ratio);
-  }
-
-  function buildTable(title, valKey, fcType) {
-    let html = `<div class="card-header"><div class="card-title">${title}</div><div class="card-meta">${filters.anio || 'Todos los años'}${showFC ? ` · ROI ${yActual-1}: ${(roiPct*100).toFixed(2)}%` : ''}</div></div>`;
-    html += '<div class="table-wrap"><table>';
-    html += '<thead class="top"><tr><th>Empresa</th>';
-    MESES_FULL.forEach(m=>html+=`<th class="num">${m}</th>`);
-    html += '<th class="num">Total</th></tr></thead><tbody>';
-
-    const empresasMostrar = [...empresas, 'Grupo Open'];
-    empresasMostrar.forEach((emp) => {
-      // Filas: Forecast (si aplica), Venta, Alcance %
-      const sub = emp === 'Grupo Open' ? fact : fact.filter(r=>r.emp===emp);
-      const valsReal = Engine.monthly(sub, valKey);
-      const totReal = valsReal.reduce((a,b)=>a+b,0);
-
-      // Sección de empresa con sub-filas
-      let fcRow = null;
-      let alcRow = null;
-      if (showFC && fcType !== null) {
-        const fcNeto = forecastNetoMensual(emp) || Array(12).fill(0);
-        const fcVals = fcType === 'bruto' ? fcNeto.map(v=>Engine.forecastBrutoFromNeto(v, yActual))
-                       : fcType === 'neto' ? fcNeto
-                       : fcType === 'rent' ? null : null;
-        if (fcVals) {
-          fcRow = fcVals;
-          alcRow = fcVals.map((f,i) => f ? valsReal[i]/f*100 : null);
-        }
-      }
-
-      // Forecast (si aplica)
-      if (fcRow) {
-        html += `<tr><td class="row-label">Forecast ${title.includes('Brutas')?'Bruto':title.includes('Netas')?'Neto':''} ${emp==='Grupo Open'?'<b>(Grupo Open)</b>':emp}</td>`;
-        fcRow.forEach(v => html += `<td class="num" style="color:var(--text-muted)">${fmtMoney(v)}</td>`);
-        html += `<td class="num" style="color:var(--text-muted)"><b>${fmtMoney(fcRow.reduce((a,b)=>a+b,0))}</b></td></tr>`;
-      }
-      // Venta
-      const labelVenta = title.includes('Brutas') ? 'Venta Bruta' : title.includes('Netas') ? 'Venta Neta' : 'Rentabilidad $';
-      html += `<tr ${emp==='Grupo Open'?'class="subtotal-row"':''}><td class="row-label">${labelVenta} ${emp==='Grupo Open'?'<b>(Grupo Open)</b>':emp}</td>`;
-      valsReal.forEach(v => html += `<td class="num">${fmtMoney(v)}</td>`);
-      html += `<td class="num"><b>${fmtMoney(totReal)}</b></td></tr>`;
-
-      // Alcance
-      if (alcRow) {
-        html += `<tr><td class="row-label">Alcance Forecast ${emp==='Grupo Open'?'<b>(Grupo Open)</b>':emp}</td>`;
-        const totFC = fcRow.reduce((a,b)=>a+b,0);
-        alcRow.forEach(p => {
-          const cls = p === null ? '' : p>=100?'alc-good':p>=80?'alc-warn':'alc-bad';
-          html += `<td class="num ${cls}">${p===null?'—':fmtPct(p)}</td>`;
-        });
-        const totAlc = totFC ? totReal/totFC*100 : null;
-        const cls = totAlc===null?'' : totAlc>=100?'alc-good':totAlc>=80?'alc-warn':'alc-bad';
-        html += `<td class="num ${cls}"><b>${totAlc===null?'—':fmtPct(totAlc)}</b></td></tr>`;
-      }
-
-      // Para Rentabilidad %, agregar fila adicional
-      if (title.includes('Rentabilidad')) {
-        const valsBruta = Engine.monthly(sub, 'vb');
-        const valsNeta = Engine.monthly(sub, 'vn');
-        const margenes = valsNeta.map((vn,i) => vn ? valsReal[i]/vn*100 : 0);
-        html += `<tr><td class="row-label">Rentabilidad %  ${emp==='Grupo Open'?'<b>(Grupo Open)</b>':emp}</td>`;
-        margenes.forEach(p => {
-          const cls = p>=30?'alc-good':p>=15?'alc-warn':p<0?'alc-bad':'';
-          html += `<td class="num ${cls}">${fmtPct(p)}</td>`;
-        });
-        const totVN = valsNeta.reduce((a,b)=>a+b,0);
-        const totMg = totVN ? totReal/totVN*100 : 0;
-        const clsTot = totMg>=30?'alc-good':totMg>=15?'alc-warn':totMg<0?'alc-bad':'';
-        html += `<td class="num ${clsTot}"><b>${fmtPct(totMg)}</b></td></tr>`;
-      }
-    });
-
-    html += '</tbody></table></div>';
-    return html;
-  }
-
-  document.getElementById('cardBrutaEmp').innerHTML = buildTable('✅ Ventas Brutas (con ROI)', 'vb', 'bruto');
-  document.getElementById('cardNetaEmp').innerHTML = buildTable('💵 Ventas Netas (sin ROI)', 'vn', 'neto');
-  document.getElementById('cardRentEmp').innerHTML = buildTable('💰 Rentabilidad (Utilidad por línea)', 'ut', null);
 }
 
 // =========================================================================
