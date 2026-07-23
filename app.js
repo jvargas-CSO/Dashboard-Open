@@ -749,27 +749,57 @@ function renderResumen() {
     MESES_FULL.forEach(m=>html+=`<th class="num">${m}</th>`);
     html += '<th class="num">Suma total</th></tr></thead><tbody>';
 
-    const buildVentaRow = (label, sub, isGrupoOpen) => {
+    // Forecast (ya convertido a bruto/neto/rentabilidad según la tabla) para una empresa
+    // específica o Grupo Open — usado tanto para la fila Forecast como para los tooltips.
+    const computeFcVals = (emp) => {
+      if (!showFC) return null;
+      const fcNeto = forecastNetoMensual(emp) || Array(12).fill(0);
+      return fcType === 'bruto' ? fcNeto.map(v=>Engine.forecastBrutoFromNeto(v, yActual))
+             : fcType === 'rent' ? fcNeto.map(v=>v*MARGEN_OBJETIVO)
+             : fcNeto;
+    };
+    const sumTo = (arr, idx) => arr.slice(0, idx+1).reduce((a,b)=>a+(b||0), 0);
+
+    // Cada celda de mes trae un tooltip: acumulado Ene-mes, y su comparación acumulada
+    // contra el Forecast y contra el mismo periodo del año anterior.
+    const buildVentaRow = (label, sub, subPrev, isGrupoOpen, fcVals) => {
       const valsReal = Engine.monthly(sub, valKey);
+      const valsPrev = subPrev ? Engine.monthly(subPrev, valKey) : null;
       const totReal = valsReal.reduce((a,b)=>a+b,0);
       let row = `<tr ${isGrupoOpen ? 'class="subtotal-row"' : ''}><td class="row-label">${label}</td>`;
-      valsReal.forEach(v => row += `<td class="num">${fmtMoney(v)}</td>`);
+      valsReal.forEach((v, i) => {
+        const acumReal = sumTo(valsReal, i);
+        let tip = `Acumulado Ene-${MESES_FULL[i]}: ${fmtMoney(acumReal)}`;
+        if (fcVals) {
+          const acumFc = sumTo(fcVals, i);
+          if (acumFc) {
+            const diff = acumReal - acumFc;
+            tip += ` · vs Forecast acum.: ${fmtPct(acumReal/acumFc*100)} (${diff>=0?'+':''}${fmtMoneyShort(diff)})`;
+          }
+        }
+        if (valsPrev) {
+          const acumPrev = sumTo(valsPrev, i);
+          if (acumPrev) {
+            const diffG = acumReal - acumPrev;
+            tip += ` · vs ${yPrev} acum.: ${diffG>=0?'+':''}${fmtPct(diffG/acumPrev*100)} (${diffG>=0?'+':''}${fmtMoneyShort(diffG)})`;
+          }
+        }
+        row += `<td class="num" title="${tip}">${fmtMoney(v)}</td>`;
+      });
       row += `<td class="num"><b>${fmtMoney(totReal)}</b></td></tr>`;
       return { row, valsReal, totReal };
     };
 
     empresas.forEach(emp => {
-      const { row } = buildVentaRow(emp, fact.filter(r=>r.emp===emp), false);
+      const { row } = buildVentaRow(emp, fact.filter(r=>r.emp===emp), factPrev.filter(r=>r.emp===emp), false, computeFcVals(emp));
       html += row;
     });
-    const { row: rowGrupoOpen, valsReal: valsGO, totReal: totGrupoOpen } = buildVentaRow('Suma total', fact, true);
+    const fcValsGO = computeFcVals('Grupo Open');
+    const { row: rowGrupoOpen, valsReal: valsGO, totReal: totGrupoOpen } = buildVentaRow('Suma total', fact, factPrev, true, fcValsGO);
     html += rowGrupoOpen;
 
     if (showFC) {
-      const fcNeto = forecastNetoMensual('Grupo Open') || Array(12).fill(0);
-      const fcVals = fcType === 'bruto' ? fcNeto.map(v=>Engine.forecastBrutoFromNeto(v, yActual))
-                     : fcType === 'rent' ? fcNeto.map(v=>v*MARGEN_OBJETIVO)
-                     : fcNeto;
+      const fcVals = fcValsGO || Array(12).fill(0);
       const totFC = fcVals.reduce((a,b)=>a+b,0);
       html += `<tr><td class="row-label">Forecast</td>`;
       fcVals.forEach(v => html += `<td class="num" style="color:var(--text-muted)">${fmtMoney(v)}</td>`);
