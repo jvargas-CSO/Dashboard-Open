@@ -774,14 +774,14 @@ function renderResumen() {
           const acumFc = sumTo(fcVals, i);
           if (acumFc) {
             const diff = acumReal - acumFc;
-            tip += ` · vs Forecast acum.: ${fmtPct(acumReal/acumFc*100)} (${diff>=0?'+':''}${fmtMoneyShort(diff)})`;
+            tip += `\n• vs Forecast acum.: ${fmtPct(acumReal/acumFc*100)} (${diff>=0?'+':''}${fmtMoneyShort(diff)})`;
           }
         }
         if (valsPrev) {
           const acumPrev = sumTo(valsPrev, i);
           if (acumPrev) {
             const diffG = acumReal - acumPrev;
-            tip += ` · vs ${yPrev} acum.: ${diffG>=0?'+':''}${fmtPct(diffG/acumPrev*100)} (${diffG>=0?'+':''}${fmtMoneyShort(diffG)})`;
+            tip += `\n• vs ${yPrev} acum.: ${diffG>=0?'+':''}${fmtPct(diffG/acumPrev*100)} (${diffG>=0?'+':''}${fmtMoneyShort(diffG)})`;
           }
         }
         row += `<td class="num" title="${tip}">${fmtMoney(v)}</td>`;
