@@ -892,75 +892,103 @@ function renderVendedor() {
   const vData = fact.filter(r => r.eje === selectedVendedor);
 
   const yActual = parseInt(filters.anio) || (Engine.yearsAvailable.length ? Math.max(...Engine.yearsAvailable) : 2026);
+  const yPrev = yActual - 1;
   const showFC = forecastLoaded && yActual === 2026;
 
   const vb = Engine.monthly(vData, 'vb'), vn = Engine.monthly(vData, 'vn'), ut = Engine.monthly(vData, 'ut'), com = Engine.monthly(vData, 'com');
   const totVB = vb.reduce((a,b)=>a+b,0), totVN = vn.reduce((a,b)=>a+b,0), totUT = ut.reduce((a,b)=>a+b,0), totCOM = com.reduce((a,b)=>a+b,0);
 
+  // Mismo vendedor, año anterior — para el comparativo acumulado de los tooltips
+  const dataPrev = Engine.facturable(Engine.applyFilters({...filters, anio: yPrev}, {ignoreYear:false}));
+  const vDataPrev = dataPrev.filter(r => r.eje === selectedVendedor);
+  const vbPrev = Engine.monthly(vDataPrev, 'vb'), vnPrev = Engine.monthly(vDataPrev, 'vn'), utPrev = Engine.monthly(vDataPrev, 'ut');
+
   // Forecast del vendedor
   const fcNeto = showFC ? Engine.forecastMonthlyByEje(selectedVendedor, yActual) : Array(12).fill(0);
   const fcBruto = fcNeto.map(v => Engine.forecastBrutoFromNeto(v, yActual));
+  const fcUtil = fcNeto.map(v => v * MARGEN_OBJETIVO);
   const totFCNeto = fcNeto.reduce((a,b)=>a+b,0);
   const totFCBruto = fcBruto.reduce((a,b)=>a+b,0);
+
+  // Mismo mecanismo de tooltip acumulado que en Resumen: Acumulado Ene-mes, vs Forecast
+  // acum., vs año pasado acum. — cada línea en su propio renglón con viñeta.
+  const sumTo = (arr, idx) => arr.slice(0, idx+1).reduce((a,b)=>a+(b||0), 0);
+  function buildTip(vals, fcVals, valsPrev, i) {
+    const acumReal = sumTo(vals, i);
+    let tip = `Acumulado Ene-${MESES_FULL[i]}: ${fmtMoney(acumReal)}`;
+    if (fcVals) {
+      const acumFc = sumTo(fcVals, i);
+      if (acumFc) {
+        const diff = acumReal - acumFc;
+        tip += `\n• vs Forecast acum.: ${fmtPct(acumReal/acumFc*100)} (${diff>=0?'+':''}${fmtMoneyShort(diff)})`;
+      }
+    }
+    if (valsPrev) {
+      const acumPrev = sumTo(valsPrev, i);
+      if (acumPrev) {
+        const diffG = acumReal - acumPrev;
+        tip += `\n• vs ${yPrev} acum.: ${diffG>=0?'+':''}${fmtPct(diffG/acumPrev*100)} (${diffG>=0?'+':''}${fmtMoneyShort(diffG)})`;
+      }
+    }
+    return tip;
+  }
+  // Misma celda de Alcance apilada ($ diferencia + %) que en Resumen.
+  function buildAlcanceCell(real, f) {
+    if (!f) return '<td class="num">—</td>';
+    const diff = real - f;
+    const pct = real / f * 100;
+    const cls = diff >= 0 ? 'pos' : 'neg';
+    return `<td class="num"><b class="${cls}">${fmtMoneyShort(diff)}</b><br><span style="font-size:11px;color:var(--text-muted)">${fmtPct(pct)}</span></td>`;
+  }
 
   let html = `<div class="table-wrap"><table>`;
   html += `<thead class="top"><tr><th>Vendedor</th><th class="center">${selectedVendedor}</th>`;
   MESES_FULL.forEach(m=>html+=`<th class="num">${m}</th>`);
-  html += `<th class="num">Total</th></tr></thead><tbody>`;
+  html += `<th class="num">Suma total</th></tr></thead><tbody>`;
 
   // Forecast Bruto
   html += `<tr><td class="row-label" colspan="2">Forecast Bruto</td>`;
   if (showFC) {
-    fcBruto.forEach(v => html += `<td class="num">${fmtMoney(v)}</td>`);
-    html += `<td class="num"><b>${fmtMoney(totFCBruto)}</b></td></tr>`;
+    fcBruto.forEach(v => html += `<td class="num" style="color:var(--text-muted)">${fmtMoney(v)}</td>`);
+    html += `<td class="num" style="color:var(--text-muted)"><b>${fmtMoney(totFCBruto)}</b></td></tr>`;
   } else { for (let i=0;i<13;i++) html += `<td class="num" style="color:var(--text-muted)">—</td>`; html += `</tr>`; }
 
   // Venta Bruta
   html += `<tr><td class="row-label" colspan="2">Venta Bruta</td>`;
-  vb.forEach(v => html += `<td class="num"><b>${fmtMoney(v)}</b></td>`);
+  vb.forEach((v,i) => html += `<td class="num" data-tip="${buildTip(vb, showFC?fcBruto:null, vbPrev, i)}"><b>${fmtMoney(v)}</b></td>`);
   html += `<td class="num"><b>${fmtMoney(totVB)}</b></td></tr>`;
 
-  // Alcance Forecast (Bruto)
-  html += `<tr><td class="row-label" colspan="2">Alcance Forecast</td>`;
+  // Alcance (Bruto) — $ diferencia + % apilados
+  html += `<tr><td class="row-label" colspan="2">Alcance</td>`;
   if (showFC) {
-    fcBruto.forEach((f,i) => {
-      const p = f ? vb[i]/f*100 : null;
-      const cls = p===null?'':p>=100?'alc-good':p>=80?'alc-warn':'alc-bad';
-      html += `<td class="num ${cls}">${p===null?'—':fmtPct(p)}</td>`;
-    });
-    const tA = totFCBruto?totVB/totFCBruto*100:null;
-    const clsT = tA===null?'':tA>=100?'alc-good':tA>=80?'alc-warn':'alc-bad';
-    html += `<td class="num ${clsT}"><b>${tA===null?'—':fmtPct(tA)}</b></td></tr>`;
+    vb.forEach((v,i) => html += buildAlcanceCell(v, fcBruto[i]));
+    html += buildAlcanceCell(totVB, totFCBruto);
+    html += `</tr>`;
   } else { for (let i=0;i<13;i++) html += `<td class="num" style="color:var(--text-muted)">—</td>`; html += `</tr>`; }
 
   // Forecast Neto
   html += `<tr><td class="row-label" colspan="2">Forecast Neto</td>`;
   if (showFC) {
-    fcNeto.forEach(v => html += `<td class="num">${fmtMoney(v)}</td>`);
-    html += `<td class="num"><b>${fmtMoney(totFCNeto)}</b></td></tr>`;
+    fcNeto.forEach(v => html += `<td class="num" style="color:var(--text-muted)">${fmtMoney(v)}</td>`);
+    html += `<td class="num" style="color:var(--text-muted)"><b>${fmtMoney(totFCNeto)}</b></td></tr>`;
   } else { for (let i=0;i<13;i++) html += `<td class="num" style="color:var(--text-muted)">—</td>`; html += `</tr>`; }
 
   // Venta Neta
   html += `<tr><td class="row-label" colspan="2">Venta Neta</td>`;
-  vn.forEach(v => html += `<td class="num"><b>${fmtMoney(v)}</b></td>`);
+  vn.forEach((v,i) => html += `<td class="num" data-tip="${buildTip(vn, showFC?fcNeto:null, vnPrev, i)}"><b>${fmtMoney(v)}</b></td>`);
   html += `<td class="num"><b>${fmtMoney(totVN)}</b></td></tr>`;
 
-  // Alcance Neto
-  html += `<tr><td class="row-label" colspan="2">Alcance Forecast</td>`;
+  // Alcance Neto — $ diferencia + % apilados
+  html += `<tr><td class="row-label" colspan="2">Alcance</td>`;
   if (showFC) {
-    fcNeto.forEach((f,i) => {
-      const p = f ? vn[i]/f*100 : null;
-      const cls = p===null?'':p>=100?'alc-good':p>=80?'alc-warn':'alc-bad';
-      html += `<td class="num ${cls}">${p===null?'—':fmtPct(p)}</td>`;
-    });
-    const tA = totFCNeto?totVN/totFCNeto*100:null;
-    const clsT = tA===null?'':tA>=100?'alc-good':tA>=80?'alc-warn':'alc-bad';
-    html += `<td class="num ${clsT}"><b>${tA===null?'—':fmtPct(tA)}</b></td></tr>`;
+    vn.forEach((v,i) => html += buildAlcanceCell(v, fcNeto[i]));
+    html += buildAlcanceCell(totVN, totFCNeto);
+    html += `</tr>`;
   } else { for (let i=0;i<13;i++) html += `<td class="num" style="color:var(--text-muted)">—</td>`; html += `</tr>`; }
 
   // Rentabilidad $
   html += `<tr><td class="row-label" colspan="2">Rentabilidad $</td>`;
-  ut.forEach(v => html += `<td class="num pos">${fmtMoney(v)}</td>`);
+  ut.forEach((v,i) => html += `<td class="num pos" data-tip="${buildTip(ut, showFC?fcUtil:null, utPrev, i)}">${fmtMoney(v)}</td>`);
   html += `<td class="num pos"><b>${fmtMoney(totUT)}</b></td></tr>`;
 
   // Rentabilidad %
