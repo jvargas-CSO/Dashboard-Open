@@ -307,8 +307,40 @@ function enforceMobileTabRestriction() {
   }
 }
 
+// Tooltip propio para celdas con [data-tip] (varias líneas) — el title nativo del navegador
+// no respeta saltos de línea al renderizar, así que se controla directo vía CSS/JS. Usa
+// delegación de eventos en document para funcionar con celdas agregadas en renders futuros
+// sin necesidad de volver a engancharse.
+function setupCustomTooltips() {
+  const tip = document.getElementById('customTooltip');
+  if (!tip) return;
+  const position = (e) => {
+    const pad = 14;
+    let x = e.clientX + pad, y = e.clientY + pad;
+    const rect = tip.getBoundingClientRect();
+    if (x + rect.width > window.innerWidth) x = e.clientX - rect.width - pad;
+    if (y + rect.height > window.innerHeight) y = e.clientY - rect.height - pad;
+    tip.style.left = x + 'px';
+    tip.style.top = y + 'px';
+  };
+  document.addEventListener('mouseover', (e) => {
+    const el = e.target.closest('[data-tip]');
+    if (!el) return;
+    tip.textContent = el.dataset.tip;
+    tip.style.display = 'block';
+    position(e);
+  });
+  document.addEventListener('mousemove', (e) => {
+    if (tip.style.display === 'block') position(e);
+  });
+  document.addEventListener('mouseout', (e) => {
+    if (e.target.closest('[data-tip]')) tip.style.display = 'none';
+  });
+}
+
 function attachListeners() {
   window.addEventListener('resize', enforceMobileTabRestriction);
+  setupCustomTooltips();
   Object.keys(filters).forEach(k => {
     if (k === 'statusOpen') return; // multi-select se maneja aparte
     const el = document.getElementById('f-'+k);
@@ -784,7 +816,7 @@ function renderResumen() {
             tip += `\n• vs ${yPrev} acum.: ${diffG>=0?'+':''}${fmtPct(diffG/acumPrev*100)} (${diffG>=0?'+':''}${fmtMoneyShort(diffG)})`;
           }
         }
-        row += `<td class="num" title="${tip}">${fmtMoney(v)}</td>`;
+        row += `<td class="num" data-tip="${tip}">${fmtMoney(v)}</td>`;
       });
       row += `<td class="num"><b>${fmtMoney(totReal)}</b></td></tr>`;
       return { row, valsReal, totReal };

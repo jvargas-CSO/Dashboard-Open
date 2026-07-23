@@ -203,6 +203,23 @@ body {
 }
 .tag.green { background: rgba(31,157,110,0.12); color: var(--success); border-color: rgba(31,157,110,0.25); }
 .tag.warn { background: rgba(217,90,40,0.14); color: var(--danger); border-color: rgba(217,90,40,0.3); cursor: help; }
+/* Tooltip propio para celdas con varias líneas — el title nativo del navegador no respeta
+   saltos de línea (\n) al renderizar, así que este control total con white-space:pre-line. */
+.custom-tooltip {
+  position: fixed;
+  display: none;
+  background: #24211c;
+  color: #fff;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-line;
+  z-index: 9999;
+  pointer-events: none;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.25);
+  max-width: 280px;
+}
 .btn {
   background: var(--primary);
   color: white;
@@ -1328,6 +1345,8 @@ tbody tr:hover { background: var(--bg-card-hover); }
 </main>
 </div><!-- /.main-wrap -->
 </div><!-- /.app -->
+
+<div class="custom-tooltip" id="customTooltip"></div>
 
 <script src="engine.js"></script>
 <script src="app.js"></script>
