@@ -1699,6 +1699,11 @@ function projBuildForecast(valKey) {
   const cierre26 = comprometido26 > 0
     ? comprometido26Monthly.map(v => v + (v / comprometido26) * excedente26)
     : comprometido26Monthly.map(() => excedente26 / 12);
+  // monthlyReal conserva 2026 tal cual está en Data Comercial (sin el excedente por tendencia)
+  // — es lo que debe mostrar la tabla histórica 2015-2026, que muestra ventas REALES año por
+  // año. monthly (con el cierre26 ajustado) sigue usándose para las KPI de "Cierre estimado" y
+  // como base del forecast 2027 — ahí sí queremos la proyección, no solo lo ya cargado.
+  const monthlyReal = { ...monthly, 2026: comprometido26Monthly };
   totals[2026] = total26;
   monthly[2026] = cierre26;
 
@@ -1728,7 +1733,7 @@ function projBuildForecast(valKey) {
   const proj2027opt = seasonalIndex.map(idx => Math.max(0, proj2027TotalOpt * idx));
 
   return {
-    years, monthly, totals,
+    years, monthly, monthlyReal, totals,
     real25: monthly[2025], cierre26, total25: totals[2025], total26,
     comprometido26, tendencia26, excedente26,
     avgGrowth, minGrowth, maxGrowth, annualGrowths,
@@ -1868,9 +1873,9 @@ function renderProyeccion() {
   if (elRoi) elRoi.textContent = `Venta Neta histórica (2015-2024) estimada con el % de ROI promedio combinado 2025+2026: ${fmtPct(computeAvgROIPct() * 100)}`;
 
   const elHistVB = document.getElementById('projHistBruta');
-  if (elHistVB) elHistVB.innerHTML = buildHistoricalTable(vb.monthly, vb.years, '#d9662c');
+  if (elHistVB) elHistVB.innerHTML = buildHistoricalTable(vb.monthlyReal, vb.years, '#d9662c');
   const elHistVN = document.getElementById('projHistNeta');
-  if (elHistVN) elHistVN.innerHTML = buildHistoricalTable(vn.monthly, vn.years, '#2563eb');
+  if (elHistVN) elHistVN.innerHTML = buildHistoricalTable(vn.monthlyReal, vn.years, '#2563eb');
 }
 
 // =========================================================================
