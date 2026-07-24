@@ -2425,15 +2425,23 @@ function renderClientes() {
     options:{ maintainAspectRatio:false, responsive:true, scales:{ y:{ position:'left', ticks:{callback:v=>v+'%'}, grid:{color:'rgba(36,33,28,0.06)'}}, y1:{ position:'right', max:100, ticks:{callback:v=>v+'%'}, grid:{display:false}}, x:{ ticks:{maxRotation:45, minRotation:45, autoSkip:false, font:{size:9}}, grid:{display:false}}}, plugins:{ legend:{position:'top'}}}
   });
 
-  acum = 0;
   const prevMapCli = groupByPrev('cli');
-  let html = '<div class="table-wrap"><table class="table-default"><thead class="top"><tr><th>Cliente</th><th>Holding</th><th class="num">V. Bruta</th><th class="num">V. Neta</th><th class="num">Utilidad</th><th class="num">Margen %</th><th class="num"># Líneas</th><th class="num">% Total</th><th class="num">Acum %</th><th class="num">V. Bruta Año Ant.</th><th class="num">YoY %</th></tr></thead><tbody>';
+  const yActualCli = parseInt(filters.anio) || (Engine.yearsAvailable.length ? Math.max(...Engine.yearsAvailable) : 2026);
+  const showFCCli = forecastLoaded && yActualCli === 2026;
+  let html = '<div class="table-wrap"><table class="table-default"><thead class="top"><tr><th>Cliente</th><th>Holding</th><th class="num">V. Bruta</th><th class="num">V. Neta</th><th class="num">Utilidad</th><th class="num">Margen %</th><th class="num">% Total</th><th class="num">vs Forecast</th><th class="num">V. Neta Año Ant.</th><th class="num">YoY %</th></tr></thead><tbody>';
   grp.forEach(g => {
-    acum += g.vb;
-    const p = total?g.vb/total*100:0; const ac = total?acum/total*100:0;
+    const p = total?g.vb/total*100:0;
     const cls = g.margen>=30?'alc-good':g.margen>=15?'alc-warn':'alc-bad';
     const hol = mainHolding(fact, g.key);
-    html += `<tr><td><b>${g.key}</b></td><td>${hol}</td><td class="num">${fmtMoney(g.vb)}</td><td class="num">${fmtMoney(g.vn)}</td><td class="num pos">${fmtMoney(g.ut)}</td><td class="num ${cls}">${fmtPct(g.margen)}</td><td class="num">${g.n}</td><td class="num">${fmtPct(p)}</td><td class="num">${fmtPct(ac)}</td>${renderYoYCell(g, prevMapCli[g.key], 'vb')}</tr>`;
+    let fcCell = '<td class="num" style="color:var(--text-muted)">—</td>';
+    if (showFCCli) {
+      const fcNeto = Engine.forecast.filter(f=>f.anio===yActualCli && f.cli===g.key).reduce((a,f)=>a+f.fcNeto, 0);
+      if (fcNeto) {
+        const alc = g.vn/fcNeto*100;
+        fcCell = `<td class="num ${alcanceColor(alc)}">${fmtPct(alc)}</td>`;
+      }
+    }
+    html += `<tr><td><b>${g.key}</b></td><td>${hol}</td><td class="num">${fmtMoney(g.vb)}</td><td class="num">${fmtMoney(g.vn)}</td><td class="num pos">${fmtMoney(g.ut)}</td><td class="num ${cls}">${fmtPct(g.margen)}</td><td class="num">${fmtPct(p)}</td>${fcCell}${renderYoYCell(g, prevMapCli[g.key], 'vn')}</tr>`;
   });
   html += '</tbody></table></div>';
   document.getElementById('tblClientes').innerHTML = html;
