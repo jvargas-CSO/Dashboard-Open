@@ -1013,6 +1013,35 @@ function renderVendedor() {
   html += '</tbody></table></div>';
   document.getElementById('vendedorTable').innerHTML = html;
 
+  // Presupuesto por Holding y por Agencia (Real vs Forecast) del vendedor seleccionado —
+  // requiere que el Forecast por vendedor traiga columnas Holding/Agencia (hol/age).
+  function buildBudgetTable(groupField, label) {
+    const realByGroup = {};
+    vData.forEach(r => {
+      const k = r[groupField] || 'Sin definir';
+      realByGroup[k] = (realByGroup[k] || 0) + r.vn;
+    });
+    const fcByGroup = {};
+    if (showFC) {
+      Engine.forecast.filter(f => f.anio === yActual && f.eje === selectedVendedor).forEach(f => {
+        const k = f[groupField] || 'Sin definir';
+        fcByGroup[k] = (fcByGroup[k] || 0) + f.fcNeto;
+      });
+    }
+    const keys = new Set([...Object.keys(realByGroup), ...Object.keys(fcByGroup)]);
+    const rows = [...keys].map(k => ({ key: k, real: realByGroup[k] || 0, fc: fcByGroup[k] || 0 })).sort((a,b) => b.real - a.real);
+    if (rows.length === 0) return '<div style="padding:14px;color:var(--text-muted);text-align:center">Sin datos</div>';
+    let out = `<div class="table-wrap"><table class="table-default"><thead class="top"><tr><th>${label}</th><th class="num">V. Neta Real</th><th class="num">Forecast Neto</th><th class="num">Alcance %</th></tr></thead><tbody>`;
+    rows.forEach(row => {
+      const alc = row.fc ? row.real / row.fc * 100 : null;
+      out += `<tr><td><b>${row.key}</b></td><td class="num">${fmtMoney(row.real)}</td><td class="num" style="color:var(--text-muted)">${showFC ? fmtMoney(row.fc) : '—'}</td><td class="num ${alc===null?'':alcanceColor(alc)}">${alc===null?'—':fmtPct(alc)}</td></tr>`;
+    });
+    out += '</tbody></table></div>';
+    return out;
+  }
+  document.getElementById('vendedorPorHolding').innerHTML = buildBudgetTable('hol', 'Holding');
+  document.getElementById('vendedorPorAgencia').innerHTML = buildBudgetTable('age', 'Agencia');
+
   // Ranking general con alcance global
   const ejes = Engine.groupBy(fact, 'eje').sort((a,b)=>b.vn-a.vn);
   let r = `<div class="table-wrap"><table class="table-default"><thead class="top"><tr>
@@ -2470,21 +2499,34 @@ function renderHoldings() {
   drawChart('ch-holNeta', { type:'bar', data:{ labels: top.map(g=>g.key), datasets:[{label:'V. Neta', data:top.map(g=>g.vn), backgroundColor:'#2563eb', borderRadius:4}]}, options: barOpts({money:true, horizontal:true}) });
   drawChart('ch-holMargen', { type:'bar', data:{ labels: top.map(g=>g.key), datasets:[{label:'Margen %', data:top.map(g=>g.margen), backgroundColor: top.map(g=>g.margen>=30?'#1f9d6e':g.margen>=15?'#b45309':'#dc4747'), borderRadius:4}]}, options: barOpts({pct:true, horizontal:true}) });
 
+  const yActualHol = parseInt(filters.anio) || (Engine.yearsAvailable.length ? Math.max(...Engine.yearsAvailable) : 2026);
+  const showFCHol = forecastLoaded && yActualHol === 2026;
+
   const prevMapHol = groupByPrev('hol');
-  let html = '<div class="table-wrap"><table class="table-default"><thead class="top"><tr><th>Holding</th><th class="num">V. Bruta</th><th class="num">V. Neta</th><th class="num">Utilidad</th><th class="num">Margen %</th><th class="num"># Clientes</th><th class="num"># Líneas</th><th class="num">V. Bruta Año Ant.</th><th class="num">YoY %</th></tr></thead><tbody>';
+  let html = '<div class="table-wrap"><table class="table-default"><thead class="top"><tr><th>Holding</th><th class="num">V. Bruta</th><th class="num">V. Neta</th><th class="num">Utilidad</th><th class="num">Margen %</th><th class="num"># Clientes</th><th class="num"># Líneas</th><th class="num">vs Forecast</th><th class="num">V. Bruta Año Ant.</th><th class="num">YoY %</th></tr></thead><tbody>';
   grp.forEach(g => {
     const cls = g.margen>=30?'alc-good':g.margen>=15?'alc-warn':'alc-bad';
-    html += `<tr><td><b>${g.key}</b></td><td class="num">${fmtMoney(g.vb)}</td><td class="num">${fmtMoney(g.vn)}</td><td class="num pos">${fmtMoney(g.ut)}</td><td class="num ${cls}">${fmtPct(g.margen)}</td><td class="num">${g.nClientes}</td><td class="num">${g.n}</td>${renderYoYCell(g, prevMapHol[g.key], 'vb')}</tr>`;
+    let fcCell = '<td class="num" style="color:var(--text-muted)">—</td>';
+    if (showFCHol) {
+      const fcNeto = Engine.forecast.filter(f=>f.anio===yActualHol && f.hol===g.key).reduce((a,f)=>a+f.fcNeto, 0);
+      if (fcNeto) fcCell = `<td class="num ${alcanceColor(g.vn/fcNeto*100)}">${fmtPct(g.vn/fcNeto*100)}</td>`;
+    }
+    html += `<tr><td><b>${g.key}</b></td><td class="num">${fmtMoney(g.vb)}</td><td class="num">${fmtMoney(g.vn)}</td><td class="num pos">${fmtMoney(g.ut)}</td><td class="num ${cls}">${fmtPct(g.margen)}</td><td class="num">${g.nClientes}</td><td class="num">${g.n}</td>${fcCell}${renderYoYCell(g, prevMapHol[g.key], 'vb')}</tr>`;
   });
   html += '</tbody></table></div>';
   document.getElementById('tblHoldings').innerHTML = html;
 
   const ag = Engine.groupBy(fact, 'age').sort((a,b)=>b.vb-a.vb).slice(0,30);
   const prevMapAg = groupByPrev('age');
-  let html2 = '<div class="table-wrap"><table class="table-default"><thead class="top"><tr><th>Agencia</th><th class="num">V. Bruta</th><th class="num">V. Neta</th><th class="num">Utilidad</th><th class="num">Margen %</th><th class="num"># Clientes</th><th class="num">V. Bruta Año Ant.</th><th class="num">YoY %</th></tr></thead><tbody>';
+  let html2 = '<div class="table-wrap"><table class="table-default"><thead class="top"><tr><th>Agencia</th><th class="num">V. Bruta</th><th class="num">V. Neta</th><th class="num">Utilidad</th><th class="num">Margen %</th><th class="num"># Clientes</th><th class="num">vs Forecast</th><th class="num">V. Bruta Año Ant.</th><th class="num">YoY %</th></tr></thead><tbody>';
   ag.forEach(g => {
     const cls = g.margen>=30?'alc-good':g.margen>=15?'alc-warn':'alc-bad';
-    html2 += `<tr><td><b>${g.key}</b></td><td class="num">${fmtMoney(g.vb)}</td><td class="num">${fmtMoney(g.vn)}</td><td class="num pos">${fmtMoney(g.ut)}</td><td class="num ${cls}">${fmtPct(g.margen)}</td><td class="num">${g.nClientes}</td>${renderYoYCell(g, prevMapAg[g.key], 'vb')}</tr>`;
+    let fcCell = '<td class="num" style="color:var(--text-muted)">—</td>';
+    if (showFCHol) {
+      const fcNeto = Engine.forecast.filter(f=>f.anio===yActualHol && f.age===g.key).reduce((a,f)=>a+f.fcNeto, 0);
+      if (fcNeto) fcCell = `<td class="num ${alcanceColor(g.vn/fcNeto*100)}">${fmtPct(g.vn/fcNeto*100)}</td>`;
+    }
+    html2 += `<tr><td><b>${g.key}</b></td><td class="num">${fmtMoney(g.vb)}</td><td class="num">${fmtMoney(g.vn)}</td><td class="num pos">${fmtMoney(g.ut)}</td><td class="num ${cls}">${fmtPct(g.margen)}</td><td class="num">${g.nClientes}</td>${fcCell}${renderYoYCell(g, prevMapAg[g.key], 'vb')}</tr>`;
   });
   html2 += '</tbody></table></div>';
   document.getElementById('tblAgencias').innerHTML = html2;

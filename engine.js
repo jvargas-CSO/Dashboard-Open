@@ -515,6 +515,8 @@ function processForecastWorkbook(workbook, year=2026) {
       const eje = normEjecutivo(r['Nuevo ejecutivo'] || r['Ejecutivo'] || r['Vendedor']);
       const cli = titleCase(r['Cliente Comercial'] || r['Cliente'] || '');
       if (!eje || !cli) return;
+      const hol = titleCase(r['Holding'] || '') || 'Sin definir';
+      const age = titleCase(r['Agencia'] || '') || 'Sin definir';
       meses.forEach((mes, idx) => {
         const raw = r[mes];
         const v = num(raw);
@@ -529,7 +531,7 @@ function processForecastWorkbook(workbook, year=2026) {
         if (v > 0) records.push({
           anio: year,
           mes: idx + 1,
-          eje, cli,
+          eje, cli, hol, age,
           fcNeto: v,
         });
       });
