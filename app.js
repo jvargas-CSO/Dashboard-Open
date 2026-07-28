@@ -2521,7 +2521,9 @@ function renderHoldings() {
 
   const ag = Engine.groupBy(fact, 'age').sort((a,b)=>b.vb-a.vb).slice(0,30);
   const prevMapAg = groupByPrev('age');
-  let html2 = '<div class="table-wrap"><table class="table-default"><thead class="top"><tr><th>Agencia</th><th class="num">V. Bruta</th><th class="num">V. Neta</th><th class="num">Utilidad</th><th class="num">Margen %</th><th class="num"># Clientes</th><th class="num">vs Forecast</th><th class="num">V. Bruta Año Ant.</th><th class="num">YoY %</th></tr></thead><tbody>';
+  const roiMapAg = {};
+  Engine.aggregateBy(fact, 'age', ['montoROIAgencia', 'montoROIPersonal']).forEach(r => { roiMapAg[r.key] = r; });
+  let html2 = '<div class="table-wrap"><table class="table-default"><thead class="top"><tr><th>Agencia</th><th class="num">V. Bruta</th><th class="num">V. Neta</th><th class="num">Utilidad</th><th class="num">Margen %</th><th class="num">ROI Agencia</th><th class="num">ROI Personal</th><th class="num">vs Forecast</th><th class="num">V. Neta Año Ant.</th><th class="num">YoY %</th></tr></thead><tbody>';
   ag.forEach(g => {
     const cls = g.margen>=30?'alc-good':g.margen>=15?'alc-warn':'alc-bad';
     let fcCell = '<td class="num" style="color:var(--text-muted)">—</td>';
@@ -2529,7 +2531,8 @@ function renderHoldings() {
       const fcNeto = Engine.forecast.filter(f=>f.anio===yActualHol && f.age===g.key).reduce((a,f)=>a+f.fcNeto, 0);
       if (fcNeto) fcCell = `<td class="num ${alcanceColor(g.vn/fcNeto*100)}">${fmtPct(g.vn/fcNeto*100)}</td>`;
     }
-    html2 += `<tr><td><b>${g.key}</b></td><td class="num">${fmtMoney(g.vb)}</td><td class="num">${fmtMoney(g.vn)}</td><td class="num pos">${fmtMoney(g.ut)}</td><td class="num ${cls}">${fmtPct(g.margen)}</td><td class="num">${g.nClientes}</td>${fcCell}${renderYoYCell(g, prevMapAg[g.key], 'vb')}</tr>`;
+    const roi = roiMapAg[g.key] || { montoROIAgencia: 0, montoROIPersonal: 0 };
+    html2 += `<tr><td><b>${g.key}</b></td><td class="num">${fmtMoney(g.vb)}</td><td class="num">${fmtMoney(g.vn)}</td><td class="num pos">${fmtMoney(g.ut)}</td><td class="num ${cls}">${fmtPct(g.margen)}</td><td class="num">${fmtMoney(roi.montoROIAgencia)}</td><td class="num">${fmtMoney(roi.montoROIPersonal)}</td>${fcCell}${renderYoYCell(g, prevMapAg[g.key], 'vn')}</tr>`;
   });
   html2 += '</tbody></table></div>';
   document.getElementById('tblAgencias').innerHTML = html2;
