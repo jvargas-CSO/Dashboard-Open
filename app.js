@@ -2503,7 +2503,9 @@ function renderHoldings() {
   const showFCHol = forecastLoaded && yActualHol === 2026;
 
   const prevMapHol = groupByPrev('hol');
-  let html = '<div class="table-wrap"><table class="table-default"><thead class="top"><tr><th>Holding</th><th class="num">V. Bruta</th><th class="num">V. Neta</th><th class="num">Utilidad</th><th class="num">Margen %</th><th class="num"># Clientes</th><th class="num"># Líneas</th><th class="num">vs Forecast</th><th class="num">V. Bruta Año Ant.</th><th class="num">YoY %</th></tr></thead><tbody>';
+  const roiMapHol = {};
+  Engine.aggregateBy(fact, 'hol', ['montoROIAgencia', 'montoROIPersonal']).forEach(r => { roiMapHol[r.key] = r; });
+  let html = '<div class="table-wrap"><table class="table-default"><thead class="top"><tr><th>Holding</th><th class="num">V. Bruta</th><th class="num">V. Neta</th><th class="num">Utilidad</th><th class="num">Margen %</th><th class="num">ROI Agencia</th><th class="num">ROI Personal</th><th class="num">vs Forecast</th><th class="num">V. Neta Año Ant.</th><th class="num">YoY %</th></tr></thead><tbody>';
   grp.forEach(g => {
     const cls = g.margen>=30?'alc-good':g.margen>=15?'alc-warn':'alc-bad';
     let fcCell = '<td class="num" style="color:var(--text-muted)">—</td>';
@@ -2511,7 +2513,8 @@ function renderHoldings() {
       const fcNeto = Engine.forecast.filter(f=>f.anio===yActualHol && f.hol===g.key).reduce((a,f)=>a+f.fcNeto, 0);
       if (fcNeto) fcCell = `<td class="num ${alcanceColor(g.vn/fcNeto*100)}">${fmtPct(g.vn/fcNeto*100)}</td>`;
     }
-    html += `<tr><td><b>${g.key}</b></td><td class="num">${fmtMoney(g.vb)}</td><td class="num">${fmtMoney(g.vn)}</td><td class="num pos">${fmtMoney(g.ut)}</td><td class="num ${cls}">${fmtPct(g.margen)}</td><td class="num">${g.nClientes}</td><td class="num">${g.n}</td>${fcCell}${renderYoYCell(g, prevMapHol[g.key], 'vb')}</tr>`;
+    const roi = roiMapHol[g.key] || { montoROIAgencia: 0, montoROIPersonal: 0 };
+    html += `<tr><td><b>${g.key}</b></td><td class="num">${fmtMoney(g.vb)}</td><td class="num">${fmtMoney(g.vn)}</td><td class="num pos">${fmtMoney(g.ut)}</td><td class="num ${cls}">${fmtPct(g.margen)}</td><td class="num">${fmtMoney(roi.montoROIAgencia)}</td><td class="num">${fmtMoney(roi.montoROIPersonal)}</td>${fcCell}${renderYoYCell(g, prevMapHol[g.key], 'vn')}</tr>`;
   });
   html += '</tbody></table></div>';
   document.getElementById('tblHoldings').innerHTML = html;
