@@ -950,6 +950,10 @@ tbody tr:hover { background: var(--bg-card-hover); }
     <div class="card full" id="cardBrutaEmp"></div>
     <div class="card full" id="cardNetaEmp" style="margin-top:14px"></div>
     <div class="card full" id="cardRentEmp" style="margin-top:14px"></div>
+    <div class="card full" style="margin-top:14px">
+      <div class="card-header"><div class="card-title">Ranking general de vendedores</div></div>
+      <div id="vendedorRanking"></div>
+    </div>
   </section>
 
   <section class="section" id="sec-vendedor">
@@ -975,8 +979,16 @@ tbody tr:hover { background: var(--bg-card-hover); }
       </div>
     </div>
     <div class="card full" style="margin-top:14px">
-      <div class="card-header"><div class="card-title">Ranking general de vendedores</div></div>
-      <div id="vendedorRanking"></div>
+      <div class="card-header"><div class="card-title">Alcance por Cliente</div><div class="card-meta">Real vs Forecast de cada cliente del vendedor seleccionado</div></div>
+      <div id="vendedorAlcanceCliente"></div>
+    </div>
+    <div class="card full" style="margin-top:14px">
+      <div class="card-header"><div class="card-title">Alcance Trimestral vs Forecast Anual</div><div class="card-meta">Acumulado desde enero a cada trimestre, contra el Forecast anual completo. Margen objetivo = 32% de la Venta Neta Forecast</div></div>
+      <div id="vendedorTrimestral"></div>
+    </div>
+    <div class="card full" style="margin-top:14px">
+      <div class="card-header"><div class="card-title">Clientes del año</div><div class="card-meta">% de composición de la venta del vendedor</div></div>
+      <div id="vendedorClientesAnio"></div>
     </div>
   </section>
 

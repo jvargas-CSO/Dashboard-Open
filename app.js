@@ -857,6 +857,36 @@ function renderResumen() {
   document.getElementById('cardBrutaEmp').innerHTML = buildEmpresaTable(`✅ Ventas Brutas ${yActual}`, 'vb', 'bruto');
   document.getElementById('cardNetaEmp').innerHTML = buildEmpresaTable(`💵 Ventas Netas ${yActual}`, 'vn', 'neto');
   document.getElementById('cardRentEmp').innerHTML = buildEmpresaTable(`💰 Rentabilidad Ventas ${yActual}`, 'ut', 'rent');
+
+  // === Ranking general de vendedores (antes vivía en Por Vendedor) ===
+  const ejesRk = Engine.groupBy(fact, 'eje').sort((a,b)=>b.vn-a.vn);
+  const prevMapEje = groupByPrev('eje');
+  const roiMapEje = {};
+  Engine.aggregateBy(fact, 'eje', ['montoROIAgencia', 'montoROIPersonal']).forEach(r => { roiMapEje[r.key] = r; });
+  let rk = `<div class="table-wrap"><table class="table-default"><thead class="top"><tr>
+    <th>Vendedor</th><th class="num">V. Bruta</th><th class="num">V. Neta</th><th class="num">Utilidad</th><th class="num">Margen %</th><th class="num">Comisión</th>`;
+  if (showFC) rk += `<th class="num">Forecast Neto</th><th class="num">Alcance %</th>`;
+  rk += `<th class="num">ROI Agencia</th><th class="num">ROI Personal</th><th class="num">V. Neta Año Ant.</th><th class="num">vs Last Year</th></tr></thead><tbody>`;
+  ejesRk.forEach(e => {
+    const cls = e.margen>=30?'alc-good':e.margen>=15?'alc-warn':'alc-bad';
+    let row = `<tr><td><b>${e.key}</b></td>
+      <td class="num">${fmtMoney(e.vb)}</td>
+      <td class="num">${fmtMoney(e.vn)}</td>
+      <td class="num pos">${fmtMoney(e.ut)}</td>
+      <td class="num ${cls}">${fmtPct(e.margen)}</td>
+      <td class="num">${fmtMoney(e.com)}</td>`;
+    if (showFC) {
+      const fcN = Engine.forecast.filter(f=>f.anio===yActual && f.eje===e.key).reduce((a,f)=>a+f.fcNeto, 0);
+      const alc = fcN ? e.vn/fcN*100 : null;
+      const acl = alc===null?'':alc>=100?'alc-good':alc>=80?'alc-warn':'alc-bad';
+      row += `<td class="num">${fmtMoney(fcN)}</td><td class="num ${acl}">${alc===null?'—':fmtPct(alc)}</td>`;
+    }
+    const roi = roiMapEje[e.key] || { montoROIAgencia: 0, montoROIPersonal: 0 };
+    row += `<td class="num">${fmtMoney(roi.montoROIAgencia)}</td><td class="num">${fmtMoney(roi.montoROIPersonal)}</td>${renderYoYCell(e, prevMapEje[e.key], 'vn')}</tr>`;
+    rk += row;
+  });
+  rk += '</tbody></table></div>';
+  document.getElementById('vendedorRanking').innerHTML = rk;
 }
 
 // === Sparkline como path SVG (sin viewBox interno, para que sea responsive) ===
@@ -1042,31 +1072,35 @@ function renderVendedor() {
   document.getElementById('vendedorPorHolding').innerHTML = buildBudgetTable('hol', 'Holding');
   document.getElementById('vendedorPorAgencia').innerHTML = buildBudgetTable('age', 'Agencia');
 
-  // Ranking general con alcance global
-  const ejes = Engine.groupBy(fact, 'eje').sort((a,b)=>b.vn-a.vn);
-  let r = `<div class="table-wrap"><table class="table-default"><thead class="top"><tr>
-    <th>Vendedor</th><th class="num">V. Bruta</th><th class="num">V. Neta</th><th class="num">Utilidad</th><th class="num">Margen %</th><th class="num">Comisión</th>`;
-  if (showFC) r += `<th class="num">Forecast Neto</th><th class="num">Alcance %</th>`;
-  r += `<th class="num"># Líneas</th><th class="num"># Clientes</th></tr></thead><tbody>`;
-  ejes.forEach(e => {
-    const cls = e.margen>=30?'alc-good':e.margen>=15?'alc-warn':'alc-bad';
-    let row = `<tr><td><b>${e.key}</b></td>
-      <td class="num">${fmtMoney(e.vb)}</td>
-      <td class="num">${fmtMoney(e.vn)}</td>
-      <td class="num pos">${fmtMoney(e.ut)}</td>
-      <td class="num ${cls}">${fmtPct(e.margen)}</td>
-      <td class="num">${fmtMoney(e.com)}</td>`;
-    if (showFC) {
-      const fcN = Engine.forecast.filter(f=>f.anio===yActual && f.eje===e.key).reduce((a,f)=>a+f.fcNeto, 0);
-      const alc = fcN ? e.vn/fcN*100 : null;
-      const acl = alc===null?'':alc>=100?'alc-good':alc>=80?'alc-warn':'alc-bad';
-      row += `<td class="num">${fmtMoney(fcN)}</td><td class="num ${acl}">${alc===null?'—':fmtPct(alc)}</td>`;
-    }
-    row += `<td class="num">${fmtNum(e.n)}</td><td class="num">${fmtNum(e.nClientes)}</td></tr>`;
-    r += row;
+  // Alcance por Cliente: mismo mecanismo Real vs Forecast que Holding/Agencia, agrupado por cliente
+  document.getElementById('vendedorAlcanceCliente').innerHTML = buildBudgetTable('cli', 'Cliente');
+
+  // Alcance trimestral acumulado (Ene→fin de trimestre) vs Forecast ANUAL completo — Venta Neta
+  // y Margen (Forecast Margen = Forecast Neto anual × 32%, el margen objetivo de la empresa).
+  const trimestres = [[0,3,'Q1 · Ene-Mar'],[0,6,'Q2 · Ene-Jun'],[0,9,'Q3 · Ene-Sep'],[0,12,'Q4 · Ene-Dic']];
+  const totFCMargenAnual = totFCNeto * MARGEN_OBJETIVO;
+  let tq = '<div class="table-wrap"><table class="table-default"><thead class="top"><tr><th>Trimestre</th><th class="num">Venta Neta Acum.</th><th class="num">% vs Forecast Anual</th><th class="num">Margen Acum.</th><th class="num">% vs Forecast Margen Anual</th></tr></thead><tbody>';
+  trimestres.forEach(([ini, fin, label]) => {
+    const vnAcum = vn.slice(ini, fin).reduce((a,b)=>a+b, 0);
+    const utAcum = ut.slice(ini, fin).reduce((a,b)=>a+b, 0);
+    const pctVenta = showFC && totFCNeto ? vnAcum/totFCNeto*100 : null;
+    const pctMargen = showFC && totFCMargenAnual ? utAcum/totFCMargenAnual*100 : null;
+    tq += `<tr><td><b>${label}</b></td><td class="num">${fmtMoney(vnAcum)}</td><td class="num ${pctVenta===null?'':alcanceColor(pctVenta)}">${pctVenta===null?'—':fmtPct(pctVenta)}</td><td class="num">${fmtMoney(utAcum)}</td><td class="num ${pctMargen===null?'':alcanceColor(pctMargen)}">${pctMargen===null?'—':fmtPct(pctMargen)}</td></tr>`;
   });
-  r += '</tbody></table></div>';
-  document.getElementById('vendedorRanking').innerHTML = r;
+  tq += '</tbody></table></div>';
+  document.getElementById('vendedorTrimestral').innerHTML = tq;
+
+  // Lista de clientes del año del vendedor, con % de composición sobre su Venta Neta total
+  const clientesVendedor = Engine.groupBy(vData, 'cli').sort((a,b)=>b.vn-a.vn);
+  const totVNVendedor = clientesVendedor.reduce((a,c)=>a+c.vn, 0);
+  let cl = '<div class="table-wrap"><table class="table-default"><thead class="top"><tr><th>Cliente</th><th class="num">V. Bruta</th><th class="num">V. Neta</th><th class="num">Utilidad</th><th class="num">Margen %</th><th class="num">% Composición</th></tr></thead><tbody>';
+  clientesVendedor.forEach(c => {
+    const cls = c.margen>=30?'alc-good':c.margen>=15?'alc-warn':'alc-bad';
+    const pctComp = totVNVendedor ? c.vn/totVNVendedor*100 : 0;
+    cl += `<tr><td><b>${c.key}</b></td><td class="num">${fmtMoney(c.vb)}</td><td class="num">${fmtMoney(c.vn)}</td><td class="num pos">${fmtMoney(c.ut)}</td><td class="num ${cls}">${fmtPct(c.margen)}</td><td class="num">${fmtPct(pctComp)}</td></tr>`;
+  });
+  cl += '</tbody></table></div>';
+  document.getElementById('vendedorClientesAnio').innerHTML = cl;
 }
 
 // =========================================================================
