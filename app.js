@@ -384,6 +384,12 @@ function attachListeners() {
     acVendedor = e.target.value;
     if (document.querySelector('.nav-item.active').dataset.tab === 'alcanceCliente') renderAlcanceCliente();
   });
+  document.addEventListener('click', e => {
+    const link = e.target.closest('.cm-link');
+    if (!link) return;
+    e.preventDefault();
+    goToCM(link.dataset.cm);
+  });
   document.getElementById('cmSel').addEventListener('change', e => {
     selectedCM = e.target.value;
     renderCMDetail();
@@ -2078,7 +2084,7 @@ function renderCampanas() {
   const porCM = {};
   fact.forEach(r => {
     if (!r.cm) return;
-    if (!porCM[r.cm]) porCM[r.cm] = { cm: r.cm, cmp: r.cmp || r.cm, eje: r.eje, medios: new Set(), provs: new Set(), fechaInicio: null, fechaFin: null };
+    if (!porCM[r.cm]) porCM[r.cm] = { cm: r.cm, cmp: r.cmp || r.cm, cli: r.cli, eje: r.eje, medios: new Set(), provs: new Set(), fechaInicio: null, fechaFin: null };
     const g = porCM[r.cm];
     if (r.idSitio) g.medios.add(r.idSitio);
     if (r.prov) g.provs.add(r.prov);
@@ -2088,11 +2094,13 @@ function renderCampanas() {
   const campanas = Object.values(porCM).sort((a,b) => (b.fechaInicio||0) - (a.fechaInicio||0));
 
   let html = '<div class="table-wrap"><table class="table-default"><thead class="top"><tr>'
-    + '<th>Campaña</th><th>Fecha Inicio</th><th>Fecha Fin</th><th>Duración</th><th class="num">Medios</th><th class="num">Proveedores</th><th>Status</th><th>Coordinador</th><th>Ejecutivo</th>'
+    + '<th>Campaña</th><th>CM</th><th>Cliente</th><th>Fecha Inicio</th><th>Fecha Fin</th><th>Duración</th><th class="num">Medios</th><th class="num">Proveedores</th><th>Status</th><th>Coordinador</th><th>Ejecutivo</th>'
     + '</tr></thead><tbody>';
   campanas.forEach(c => {
     const status = computeCampanaStatus(c.fechaInicio, c.fechaFin);
     html += `<tr><td><b>${c.cmp}</b></td>`
+      + `<td><a href="#" class="cm-link" data-cm="${c.cm}" style="color:var(--primary);text-decoration:underline;cursor:pointer">${c.cm}</a></td>`
+      + `<td>${c.cli || '—'}</td>`
       + `<td>${c.fechaInicio ? c.fechaInicio.toLocaleDateString('es-MX') : '—'}</td>`
       + `<td>${c.fechaFin ? c.fechaFin.toLocaleDateString('es-MX') : '—'}</td>`
       + `<td>${fmtDuracionMeses(c.fechaInicio, c.fechaFin)}</td>`
@@ -2104,6 +2112,12 @@ function renderCampanas() {
   });
   html += '</tbody></table></div>';
   document.getElementById('tblCampanas').innerHTML = html;
+}
+
+function goToCM(cm) {
+  selectedCM = cm;
+  const btn = document.querySelector('.nav-item[data-tab="controlesMaestros"]');
+  if (btn) btn.click();
 }
 
 // =========================================================================
