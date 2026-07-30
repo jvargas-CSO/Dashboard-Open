@@ -21,6 +21,7 @@ const PALETTE = ['#d9662c','#2563eb','#1f9d6e','#b45309','#db2777','#7c3aed','#d
 const DRIVE_SHEETS = {
   dataComercial: '18cmJNgQn-mgJSiN7p154bLmc3zKJ0va0p3cNBJAVt0Y',
   forecast: '1GNm0czUzY-WF5S8BtV-jqvxjNZ6KNbpZnI1O-nlvsb0',
+  contactos: '1vMq-tXaDUpHMvi3Up03GSzeEyDRr6xku',
 };
 // Client ID de OAuth (Google Cloud Console > APIs & Services > Credentials > OAuth client ID).
 const GOOGLE_CLIENT_ID = '929626244128-ft82mdkvt7rftvg9ajg5kqiocams1a72.apps.googleusercontent.com';
@@ -74,6 +75,8 @@ let selectedCM = '';
 let forecastWarnings = [];
 let dataLoaded = false;
 let forecastLoaded = false;
+let contactosLoaded = false;
+let rpCurrentList = [];
 let iaAutoInsightsGenerated = false;
 
 // =========================================================================
@@ -151,6 +154,17 @@ async function loadFromDriveAndBoot({ silent = false } = {}) {
       console.error('No se pudo cargar el Forecast desde Drive:', fcErr);
       forecastLoaded = false;
       forecastWarnings = [];
+    }
+
+    if (!silent) setDzStatus('Cargando Contactos (Google Drive)…');
+    try {
+      const wbRP = await fetchWorkbookFromDrive(DRIVE_SHEETS.contactos);
+      const rpRecords = processContactosWorkbook(wbRP);
+      Engine.loadContactos(rpRecords, { name: 'Contactos (Drive)' });
+      contactosLoaded = true;
+    } catch (rpErr) {
+      console.error('No se pudo cargar Contactos desde Drive:', rpErr);
+      contactosLoaded = false;
     }
 
     if (silent) {
@@ -394,6 +408,14 @@ function attachListeners() {
     selectedCM = e.target.value;
     renderCMDetail();
   });
+  document.addEventListener('click', e => {
+    const row = e.target.closest('.rp-row');
+    if (!row) return;
+    openRPProfile(rpCurrentList[parseInt(row.dataset.idx)]);
+  });
+  document.getElementById('rpModalOverlay').addEventListener('click', e => {
+    if (e.target.id === 'rpModalOverlay') closeRPProfile();
+  });
   setupIA();
 }
 function resetFilters() {
@@ -528,6 +550,7 @@ function render() {
     case 'proyeccion': renderProyeccion(); break;
     case 'controlesMaestros': renderControlesMaestros(); break;
     case 'campanas': renderCampanas(); break;
+    case 'rp': renderRP(); break;
   }
   // Post-render: inyectar botones de export PNG y wire search inputs
   requestAnimationFrame(() => {
@@ -2178,6 +2201,73 @@ function goToCM(cm) {
   selectedCM = cm;
   const btn = document.querySelector('.nav-item[data-tab="controlesMaestros"]');
   if (btn) btn.click();
+}
+
+// =========================================================================
+// RELACIONES PÚBLICAS — listado de contactos por Ejecutivo Open, con perfil
+// al hacer click. Respeta únicamente el filtro de Ejecutivo del panel
+// superior (no hay Año/Status OPEN en esta data, no son ventas).
+// =========================================================================
+function renderRP() {
+  const data = filters.eje ? Engine.contactos.filter(c => c.eje === filters.eje) : Engine.contactos;
+  const sorted = [...data].sort((a,b) => a.eje.localeCompare(b.eje) || a.cliente.localeCompare(b.cliente) || a.contacto.localeCompare(b.contacto));
+  rpCurrentList = sorted;
+
+  if (!contactosLoaded) {
+    document.getElementById('tblContactos').innerHTML = '<div style="padding:14px;color:var(--text-muted);text-align:center">No se pudo cargar Contactos desde Drive.</div>';
+    return;
+  }
+  if (sorted.length === 0) {
+    document.getElementById('tblContactos').innerHTML = '<div style="padding:14px;color:var(--text-muted);text-align:center">Sin contactos para este filtro.</div>';
+    return;
+  }
+
+  let html = '<div class="table-wrap"><table class="table-default"><thead class="top"><tr>'
+    + '<th>Ejecutivo Open</th><th>Cliente</th><th>Agencia</th><th>Holding</th><th>Contacto</th><th>Puesto</th><th>Email</th>'
+    + '</tr></thead><tbody>';
+  sorted.forEach((c, i) => {
+    html += `<tr class="rp-row" data-idx="${i}" style="cursor:pointer">`
+      + `<td>${c.eje}</td><td>${c.cliente}</td><td>${c.agencia}</td><td>${c.holding}</td>`
+      + `<td><b>${c.contacto}</b>${c.aaa ? ' <span class="pill warning">AAA</span>' : ''}</td>`
+      + `<td>${c.puesto || '—'}</td><td>${c.email || '—'}</td></tr>`;
+  });
+  html += '</tbody></table></div>';
+  document.getElementById('tblContactos').innerHTML = html;
+}
+
+function fmtCumpleanos(v) {
+  if (!v) return '—';
+  const d = new Date(v);
+  // Fechas sin hora (texto tipo "1990-07-02" o serial de Excel) se interpretan como
+  // medianoche UTC — formatear en horario local puede recorrer un día hacia atrás.
+  // Se formatea siempre en UTC para que el día no se mueva por el huso horario del navegador.
+  return isNaN(d) ? String(v) : d.toLocaleDateString('es-MX', { day: 'numeric', month: 'long', timeZone: 'UTC' });
+}
+
+function openRPProfile(c) {
+  if (!c) return;
+  const badges = [
+    c.aaa ? '<span class="pill warning">AAA</span>' : '',
+    c.clienteActual ? '<span class="pill success">Cliente actual</span>' : '',
+  ].filter(Boolean).join(' ');
+  let html = `<button class="rp-modal-close" id="rpModalClose" aria-label="Cerrar">&times;</button>
+    <div style="font-size:20px;font-weight:700">${c.contacto}</div>
+    <div style="color:var(--text-muted);margin-bottom:4px">${c.puesto || 'Puesto no especificado'}</div>
+    <div style="margin-bottom:14px">${badges}</div>
+    <div class="rp-field"><b>Cliente:</b> ${c.cliente}</div>
+    <div class="rp-field"><b>Agencia:</b> ${c.agencia}</div>
+    <div class="rp-field"><b>Holding:</b> ${c.holding}</div>
+    <div class="rp-field"><b>Ejecutivo Open:</b> ${c.eje}</div>
+    <div class="rp-field"><b>Email:</b> ${c.email ? `<a href="mailto:${c.email}">${c.email}</a>` : '—'}</div>
+    <div class="rp-field"><b>Cumpleaños:</b> ${fmtCumpleanos(c.cumpleanos)}</div>`;
+  if (c.perfil) html += `<div class="rp-field" style="margin-top:10px"><b>Notas:</b><br>${c.perfil}</div>`;
+  document.getElementById('rpModalCard').innerHTML = html;
+  document.getElementById('rpModalOverlay').classList.remove('hide');
+  document.getElementById('rpModalClose').addEventListener('click', closeRPProfile);
+}
+
+function closeRPProfile() {
+  document.getElementById('rpModalOverlay').classList.add('hide');
 }
 
 // =========================================================================

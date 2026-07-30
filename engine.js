@@ -541,14 +541,45 @@ function processForecastWorkbook(workbook, year=2026) {
 }
 
 // =========================================================================
+// Procesar Excel de Contactos (Relaciones Públicas)
+// =========================================================================
+function processContactosWorkbook(workbook) {
+  const records = [];
+  workbook.SheetNames.forEach(sheetName => {
+    const sheet = workbook.Sheets[sheetName];
+    const rows = XLSX.utils.sheet_to_json(sheet, { defval: null });
+    rows.forEach(r => {
+      const contacto = titleCase(r['Contacto'] || '');
+      if (!contacto) return; // fila vacía / sin persona
+      records.push({
+        cliente: titleCase(r['Cliente'] || '') || 'Sin definir',
+        aaa: !!(r['AAA'] && String(r['AAA']).trim()),
+        clienteActual: !!(r['Cliente actual'] && String(r['Cliente actual']).trim()),
+        agencia: titleCase(r['Agencia'] || '') || 'Sin definir',
+        holding: titleCase(r['Holding'] || '') || 'Sin definir',
+        eje: normEjecutivo(r['Ejecutivo Open'] || r['Ejecutivo'] || ''),
+        contacto,
+        email: String(r['Email'] || '').trim(),
+        puesto: String(r['Puesto de trabajo'] || '').trim(),
+        perfil: String(r['Perfil de persona'] || '').trim(),
+        cumpleanos: r['Cumpleaños'] || null,
+      });
+    });
+  });
+  return records;
+}
+
+// =========================================================================
 // Estado global
 // =========================================================================
 const Engine = {
   records: [],
   forecast: [],
+  contactos: [],
   yearsAvailable: [],
   metaData: null,
   metaForecast: null,
+  metaContactos: null,
   // % ROI promedio por año (para calcular forecast Bruto)
   roiPromAnioAnterior: null,
 
@@ -566,6 +597,10 @@ const Engine = {
     this.metaForecast = fileMeta || null;
     this._applyFuzzyMatchingForecast();
     this._computeActiveSellers();
+  },
+  loadContactos(records, fileMeta) {
+    this.contactos = records;
+    this.metaContactos = fileMeta || null;
   },
   // Aplica fuzzy matching a clientes en records y forecast (canonicaliza nombres similares)
   _applyFuzzyMatchingClientes() {
@@ -801,4 +836,5 @@ const Engine = {
 window.Engine = Engine;
 window.processDataWorkbook = processDataWorkbook;
 window.processForecastWorkbook = processForecastWorkbook;
+window.processContactosWorkbook = processContactosWorkbook;
 window.CATEGORIAS_MIX = CATEGORIAS_MIX;

@@ -220,6 +220,43 @@ body {
   box-shadow: 0 4px 14px rgba(0,0,0,0.25);
   max-width: 280px;
 }
+/* Modal del perfil de contacto (Relaciones Públicas) */
+.rp-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(36,33,28,0.5);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.rp-modal-overlay.hide { display: none; }
+.rp-modal-card {
+  background: var(--bg-card);
+  border-radius: 14px;
+  padding: 24px;
+  max-width: 440px;
+  width: 100%;
+  max-height: 85vh;
+  overflow-y: auto;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+  position: relative;
+}
+.rp-modal-close {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  cursor: pointer;
+  background: none;
+  border: none;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--text-muted);
+}
+.rp-modal-close:hover { color: var(--text); }
+.rp-field { padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+.rp-field:last-child { border-bottom: none; }
 .btn {
   background: var(--primary);
   color: white;
@@ -891,6 +928,13 @@ tbody tr:hover { background: var(--bg-card-hover); }
       </button>
     </div>
     <div class="nav-group">
+      <div class="nav-group-title">Relaciones</div>
+      <button class="nav-item nav-desktop-only" data-tab="rp">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        <span class="nav-item-text">Relaciones Públicas</span>
+      </button>
+    </div>
+    <div class="nav-group">
       <div class="nav-group-title">Asistente</div>
       <button class="nav-item" data-tab="ia">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a5 5 0 0 1 5 5v2a5 5 0 0 1-10 0V7a5 5 0 0 1 5-5z"/><path d="M8 14v2a4 4 0 0 0 8 0v-2"/><line x1="12" y1="20" x2="12" y2="22"/><line x1="8" y1="22" x2="16" y2="22"/></svg>
@@ -1365,6 +1409,19 @@ tbody tr:hover { background: var(--bg-card-hover); }
     </div>
   </section>
 
+  <section class="section" id="sec-rp">
+    <div class="alert info">📇 Listado de contactos por cliente. Respeta el filtro de <b>Ejecutivo</b> del panel superior. Haz click en un contacto para ver su perfil completo.</div>
+    <div class="card full">
+      <div class="card-header">
+        <div class="card-title">Contactos</div>
+        <div class="card-actions">
+          <input type="text" class="tbl-search" placeholder="Buscar contacto, cliente, agencia..." data-target="#tblContactos table">
+        </div>
+      </div>
+      <div id="tblContactos"></div>
+    </div>
+  </section>
+
   <section class="section" id="sec-ia">
     <div class="alert info">🤖 Pregunta lo que quieras sobre los datos <b>actualmente filtrados</b> en el dashboard (arriba). El asistente solo ve un resumen agregado — no la base completa línea por línea.</div>
     <div class="card full">
@@ -1382,6 +1439,10 @@ tbody tr:hover { background: var(--bg-card-hover); }
 </div><!-- /.app -->
 
 <div class="custom-tooltip" id="customTooltip"></div>
+
+<div class="rp-modal-overlay hide" id="rpModalOverlay">
+  <div class="rp-modal-card" id="rpModalCard"></div>
+</div>
 
 <script src="engine.js"></script>
 <script src="app.js"></script>
