@@ -521,6 +521,7 @@ function render() {
     case 'rentabilidad': renderRentabilidad(); break;
     case 'proyeccion': renderProyeccion(); break;
     case 'controlesMaestros': renderControlesMaestros(); break;
+    case 'campanas': renderCampanas(); break;
   }
   // Post-render: inyectar botones de export PNG y wire search inputs
   requestAnimationFrame(() => {
@@ -2040,6 +2041,69 @@ function renderCMDetail() {
   });
   html += '</tbody></table></div>';
   detailEl.innerHTML = html;
+}
+
+// =========================================================================
+// CAMPAÑAS — un renglón por CM (venta), agrupando todos sus sitios/líneas.
+// Respeta todos los filtros del panel superior (a diferencia de Controles
+// Maestros, que solo respeta Año).
+// =========================================================================
+function fmtDuracionMeses(fechaInicio, fechaFin) {
+  if (!fechaInicio || !fechaFin) return '—';
+  const di = new Date(fechaInicio), df = new Date(fechaFin);
+  if (isNaN(di) || isNaN(df) || df < di) return '—';
+  const meses = (df - di) / (1000 * 60 * 60 * 24 * 30);
+  const r = Math.round(meses * 10) / 10;
+  return `${Number.isInteger(r) ? r.toFixed(0) : r.toFixed(1)} mes${r === 1 ? '' : 'es'}`;
+}
+function computeCampanaStatus(fechaInicio, fechaFin) {
+  if (!fechaInicio || !fechaFin) return { label: 'Sin fecha', cls: '' };
+  const di = new Date(fechaInicio), df = new Date(fechaFin);
+  if (isNaN(di) || isNaN(df)) return { label: 'Sin fecha', cls: '' };
+  const hoy = new Date(); hoy.setHours(0,0,0,0);
+  di.setHours(0,0,0,0); df.setHours(0,0,0,0);
+  const unaSemanaMs = 7 * 24 * 60 * 60 * 1000;
+  if (df < hoy) return { label: 'Campaña Terminada', cls: '' };
+  if (di > hoy) {
+    if ((di - hoy) <= unaSemanaMs) return { label: 'Inicio Inminente', cls: 'warning' };
+    return { label: 'Próximamente', cls: 'info' };
+  }
+  if ((df - hoy) <= unaSemanaMs) return { label: 'Fin Próximo', cls: 'warning' };
+  return { label: 'En curso', cls: 'success' };
+}
+function renderCampanas() {
+  const data = Engine.applyFilters(filters);
+  const fact = Engine.facturable(data);
+
+  const porCM = {};
+  fact.forEach(r => {
+    if (!r.cm) return;
+    if (!porCM[r.cm]) porCM[r.cm] = { cm: r.cm, cmp: r.cmp || r.cm, eje: r.eje, medios: new Set(), provs: new Set(), fechaInicio: null, fechaFin: null };
+    const g = porCM[r.cm];
+    if (r.idSitio) g.medios.add(r.idSitio);
+    if (r.prov) g.provs.add(r.prov);
+    if (r.fechaInicio) { const d = new Date(r.fechaInicio); if (!isNaN(d) && (!g.fechaInicio || d < g.fechaInicio)) g.fechaInicio = d; }
+    if (r.fechaFin) { const d = new Date(r.fechaFin); if (!isNaN(d) && (!g.fechaFin || d > g.fechaFin)) g.fechaFin = d; }
+  });
+  const campanas = Object.values(porCM).sort((a,b) => (b.fechaInicio||0) - (a.fechaInicio||0));
+
+  let html = '<div class="table-wrap"><table class="table-default"><thead class="top"><tr>'
+    + '<th>Campaña</th><th>Fecha Inicio</th><th>Fecha Fin</th><th>Duración</th><th class="num">Medios</th><th class="num">Proveedores</th><th>Status</th><th>Coordinador</th><th>Ejecutivo</th>'
+    + '</tr></thead><tbody>';
+  campanas.forEach(c => {
+    const status = computeCampanaStatus(c.fechaInicio, c.fechaFin);
+    html += `<tr><td><b>${c.cmp}</b></td>`
+      + `<td>${c.fechaInicio ? c.fechaInicio.toLocaleDateString('es-MX') : '—'}</td>`
+      + `<td>${c.fechaFin ? c.fechaFin.toLocaleDateString('es-MX') : '—'}</td>`
+      + `<td>${fmtDuracionMeses(c.fechaInicio, c.fechaFin)}</td>`
+      + `<td class="num">${c.medios.size}</td>`
+      + `<td class="num">${c.provs.size}</td>`
+      + `<td><span class="pill ${status.cls}">${status.label}</span></td>`
+      + `<td style="color:var(--text-muted)">Sin asignar</td>`
+      + `<td>${c.eje || '—'}</td></tr>`;
+  });
+  html += '</tbody></table></div>';
+  document.getElementById('tblCampanas').innerHTML = html;
 }
 
 // =========================================================================
