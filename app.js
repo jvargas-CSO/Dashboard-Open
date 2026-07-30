@@ -21,7 +21,7 @@ const PALETTE = ['#d9662c','#2563eb','#1f9d6e','#b45309','#db2777','#7c3aed','#d
 const DRIVE_SHEETS = {
   dataComercial: '18cmJNgQn-mgJSiN7p154bLmc3zKJ0va0p3cNBJAVt0Y',
   forecast: '1GNm0czUzY-WF5S8BtV-jqvxjNZ6KNbpZnI1O-nlvsb0',
-  contactos: '1vMq-tXaDUpHMvi3Up03GSzeEyDRr6xku',
+  contactos: '1lU01rzAgZN3EG2NBrcI7Itx-wzro65lk',
 };
 // Client ID de OAuth (Google Cloud Console > APIs & Services > Credentials > OAuth client ID).
 const GOOGLE_CLIENT_ID = '929626244128-ft82mdkvt7rftvg9ajg5kqiocams1a72.apps.googleusercontent.com';
@@ -50,21 +50,34 @@ function requestGoogleToken({ silent = false } = {}) {
   });
 }
 
-async function fetchWorkbookFromDrive(sheetId, { retried = false } = {}) {
-  const mime = encodeURIComponent('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-  // supportsAllDrives=true: necesario para que la API encuentre archivos que viven dentro
-  // de un Drive compartido de la organización (no solo el Drive personal del usuario).
-  const res = await fetch(`https://www.googleapis.com/drive/v3/files/${sheetId}/export?mimeType=${mime}&supportsAllDrives=true`, {
-    headers: { Authorization: `Bearer ${googleAccessToken}` },
-  });
+// Pide una URL a la API de Drive con reintento automático de token si expiró (401).
+async function driveApiRequest(url, { retried = false } = {}) {
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${googleAccessToken}` } });
   if (res.status === 401 && !retried) {
     try { await requestGoogleToken({ silent: true }); }
     catch (_) { const e = new Error('Tu sesión de Google expiró.'); e.code = 'AUTH_REQUIRED'; throw e; }
-    return fetchWorkbookFromDrive(sheetId, { retried: true });
+    return driveApiRequest(url, { retried: true });
   }
   if (res.status === 401) { const e = new Error('Tu sesión de Google expiró.'); e.code = 'AUTH_REQUIRED'; throw e; }
   if (res.status === 403) { const e = new Error('Tu cuenta de Google no tiene acceso a este Sheet. Pide que te compartan el archivo.'); e.code = 'NO_ACCESS'; throw e; }
   if (!res.ok) throw new Error('HTTP ' + res.status);
+  return res;
+}
+
+async function fetchWorkbookFromDrive(sheetId) {
+  // supportsAllDrives=true: necesario para que la API encuentre archivos que viven dentro
+  // de un Drive compartido de la organización (no solo el Drive personal del usuario).
+  // Primero se consulta el tipo real del archivo: un Google Sheet nativo necesita /export
+  // (Google lo convierte a xlsx al vuelo), pero un .xlsx ya subido tal cual a Drive NO es
+  // exportable — hay que descargarlo directo con ?alt=media. Usar el endpoint equivocado
+  // devuelve 403, indistinguible a simple vista de un problema real de permisos.
+  const metaRes = await driveApiRequest(`https://www.googleapis.com/drive/v3/files/${sheetId}?fields=mimeType&supportsAllDrives=true`);
+  const meta = await metaRes.json();
+  const isNativeSheet = meta.mimeType === 'application/vnd.google-apps.spreadsheet';
+  const url = isNativeSheet
+    ? `https://www.googleapis.com/drive/v3/files/${sheetId}/export?mimeType=${encodeURIComponent('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')}&supportsAllDrives=true`
+    : `https://www.googleapis.com/drive/v3/files/${sheetId}?alt=media&supportsAllDrives=true`;
+  const res = await driveApiRequest(url);
   const buf = await res.arrayBuffer();
   return XLSX.read(buf, { type: 'array', cellDates: true });
 }
