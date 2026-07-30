@@ -2243,11 +2243,17 @@ function renderRP() {
   sorted.forEach((c, i) => {
     html += `<tr class="rp-row" data-idx="${i}" style="cursor:pointer">`
       + `<td>${c.eje}</td><td>${c.cliente}</td><td>${c.agencia}</td><td>${c.holding}</td>`
-      + `<td><b>${c.contacto}</b>${c.aaa ? ' <span class="pill warning">AAA</span>' : ''}</td>`
+      + `<td><b>${c.contacto}</b>${rpBadges(c)}</td>`
       + `<td>${c.puesto || '—'}</td><td>${c.email || '—'}</td></tr>`;
   });
   html += '</tbody></table></div>';
   document.getElementById('tblContactos').innerHTML = html;
+}
+
+// Cliente AAA = estrella; Cliente actual = $. Ambas pueden combinarse en el mismo contacto.
+function rpBadges(c) {
+  return (c.aaa ? ' <span title="Cliente AAA">⭐</span>' : '')
+    + (c.clienteActual ? ' <span title="Cliente actual">💲</span>' : '');
 }
 
 function fmtCumpleanos(v) {
@@ -2262,11 +2268,11 @@ function fmtCumpleanos(v) {
 function openRPProfile(c) {
   if (!c) return;
   const badges = [
-    c.aaa ? '<span class="pill warning">AAA</span>' : '',
-    c.clienteActual ? '<span class="pill success">Cliente actual</span>' : '',
+    c.aaa ? '<span class="pill warning">⭐ Cliente AAA</span>' : '',
+    c.clienteActual ? '<span class="pill success">💲 Cliente actual</span>' : '',
   ].filter(Boolean).join(' ');
   let html = `<button class="rp-modal-close" id="rpModalClose" aria-label="Cerrar">&times;</button>
-    <div style="font-size:20px;font-weight:700">${c.contacto}</div>
+    <div style="font-size:20px;font-weight:700">${c.contacto}${rpBadges(c)}</div>
     <div style="color:var(--text-muted);margin-bottom:4px">${c.puesto || 'Puesto no especificado'}</div>
     <div style="margin-bottom:14px">${badges}</div>
     <div class="rp-field"><b>Cliente:</b> ${c.cliente}</div>

@@ -546,6 +546,12 @@ function processForecastWorkbook(workbook, year=2026) {
 function processContactosWorkbook(workbook) {
   const records = [];
   const normHeader = s => String(s || '').trim().toLowerCase();
+  // "Sí"/"Si"/"SI"/"X" cuentan como verdadero; "No" (u otro texto) o vacío como falso —
+  // a diferencia de "cualquier texto no vacío = verdadero", que marcaría "No" como sí.
+  const isAfirmativo = v => {
+    const t = String(v || '').trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+    return t === 'si' || t === 'x' || t === 'yes' || t === 'true' || t === '1';
+  };
   workbook.SheetNames.forEach(sheetName => {
     const sheet = workbook.Sheets[sheetName];
     // Se lee como filas crudas (sin asumir encabezados en el renglón 1) porque la hoja
@@ -574,8 +580,8 @@ function processContactosWorkbook(workbook) {
       if (!contacto) continue; // fila vacía / sin persona
       records.push({
         cliente: titleCase(get(row, 'Cliente') || '') || 'Sin definir',
-        aaa: !!(get(row, 'AAA') && String(get(row, 'AAA')).trim()),
-        clienteActual: !!(get(row, 'Cliente actual') && String(get(row, 'Cliente actual')).trim()),
+        aaa: isAfirmativo(get(row, 'AAA')),
+        clienteActual: isAfirmativo(get(row, 'Cliente actual')),
         agencia: titleCase(get(row, 'Agencia') || '') || 'Sin definir',
         holding: titleCase(get(row, 'Holding') || '') || 'Sin definir',
         eje: normEjecutivo(get(row, 'Ejecutivo Open') || get(row, 'Ejecutivo') || ''),
