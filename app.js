@@ -2242,18 +2242,20 @@ function renderRP() {
     + '</tr></thead><tbody>';
   sorted.forEach((c, i) => {
     html += `<tr class="rp-row" data-idx="${i}" style="cursor:pointer">`
-      + `<td>${c.eje}</td><td>${c.cliente}</td><td>${c.agencia}</td><td>${c.holding}</td>`
-      + `<td><b>${c.contacto}</b>${rpBadges(c)}</td>`
+      + `<td>${c.eje}</td><td>${c.cliente}${rpBadges(c)}</td><td>${c.agencia}</td><td>${c.holding}</td>`
+      + `<td><b>${c.contacto}</b></td>`
       + `<td>${c.puesto || '—'}</td><td>${c.email || '—'}</td></tr>`;
   });
   html += '</tbody></table></div>';
   document.getElementById('tblContactos').innerHTML = html;
 }
 
-// Cliente AAA = estrella; Cliente actual = $. Ambas pueden combinarse en el mismo contacto.
+// Cliente AAA = estrella; Cliente actual = $ en verde. Ambas pueden combinarse en el mismo cliente.
+// Se usa el carácter "$" en vez del emoji 💲 porque los emoji traen su propio color fijo y
+// no respetan el color de CSS — con texto plano el verde de .pos sí se aplica.
 function rpBadges(c) {
   return (c.aaa ? ' <span title="Cliente AAA">⭐</span>' : '')
-    + (c.clienteActual ? ' <span title="Cliente actual">💲</span>' : '');
+    + (c.clienteActual ? ' <span class="pos" title="Cliente actual" style="font-weight:700">$</span>' : '');
 }
 
 function fmtCumpleanos(v) {
@@ -2269,13 +2271,13 @@ function openRPProfile(c) {
   if (!c) return;
   const badges = [
     c.aaa ? '<span class="pill warning">⭐ Cliente AAA</span>' : '',
-    c.clienteActual ? '<span class="pill success">💲 Cliente actual</span>' : '',
+    c.clienteActual ? '<span class="pill success">$ Cliente actual</span>' : '',
   ].filter(Boolean).join(' ');
   let html = `<button class="rp-modal-close" id="rpModalClose" aria-label="Cerrar">&times;</button>
-    <div style="font-size:20px;font-weight:700">${c.contacto}${rpBadges(c)}</div>
+    <div style="font-size:20px;font-weight:700">${c.contacto}</div>
     <div style="color:var(--text-muted);margin-bottom:4px">${c.puesto || 'Puesto no especificado'}</div>
     <div style="margin-bottom:14px">${badges}</div>
-    <div class="rp-field"><b>Cliente:</b> ${c.cliente}</div>
+    <div class="rp-field"><b>Cliente:</b> ${c.cliente}${rpBadges(c)}</div>
     <div class="rp-field"><b>Agencia:</b> ${c.agencia}</div>
     <div class="rp-field"><b>Holding:</b> ${c.holding}</div>
     <div class="rp-field"><b>Ejecutivo Open:</b> ${c.eje}</div>
