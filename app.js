@@ -1095,12 +1095,19 @@ function renderVendedor() {
       }
       return lines.map(l => `• ${l}`).join('\n');
     }
+    // Verde ≥100% de alcance, amarillo 85-99%, rojo <85%. Sin forecast = sin color.
+    function quarterAlcanceCls(realQ, fcNetoQ) {
+      if (!fcNetoQ) return '';
+      const pct = realQ.vn / fcNetoQ * 100;
+      return pct >= 100 ? 'alc-good' : pct >= 85 ? 'alc-warn' : 'alc-bad';
+    }
 
     let out = `<div class="table-wrap"><table class="table-default"><thead class="top"><tr><th>${label}</th><th class="num">Q1</th><th class="num">Q2</th><th class="num">Q3</th><th class="num">Q4</th><th class="num">Suma anual</th></tr></thead><tbody>`;
     rows.forEach(row => {
       out += `<tr><td><b>${row.key}</b></td>`;
       for (let qi = 0; qi < 4; qi++) {
-        out += `<td class="num" data-tip="${buildQTip(row.real.q[qi], row.fc[qi])}">${fmtMoney(row.real.q[qi].vn)}</td>`;
+        const realQ = row.real.q[qi], fcNetoQ = row.fc[qi];
+        out += `<td class="num ${quarterAlcanceCls(realQ, fcNetoQ)}" data-tip="${buildQTip(realQ, fcNetoQ)}">${fmtMoney(realQ.vn)}</td>`;
       }
       out += `<td class="num"><b>${fmtMoney(row.real.total)}</b></td></tr>`;
     });
