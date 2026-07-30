@@ -1168,18 +1168,6 @@ function renderVendedor() {
   });
   tq += '</tbody></table></div>';
   document.getElementById('vendedorTrimestral').innerHTML = tq;
-
-  // Lista de clientes del año del vendedor, con % de composición sobre su Venta Neta total
-  const clientesVendedor = Engine.groupBy(vData, 'cli').sort((a,b)=>b.vn-a.vn);
-  const totVNVendedor = clientesVendedor.reduce((a,c)=>a+c.vn, 0);
-  let cl = '<div class="table-wrap"><table class="table-default"><thead class="top"><tr><th>Cliente</th><th class="num">V. Bruta</th><th class="num">V. Neta</th><th class="num">Utilidad</th><th class="num">Margen %</th><th class="num">% Composición</th></tr></thead><tbody>';
-  clientesVendedor.forEach(c => {
-    const cls = c.margen>=30?'alc-good':c.margen>=15?'alc-warn':'alc-bad';
-    const pctComp = totVNVendedor ? c.vn/totVNVendedor*100 : 0;
-    cl += `<tr><td><b>${c.key}</b></td><td class="num">${fmtMoney(c.vb)}</td><td class="num">${fmtMoney(c.vn)}</td><td class="num pos">${fmtMoney(c.ut)}</td><td class="num ${cls}">${fmtPct(c.margen)}</td><td class="num">${fmtPct(pctComp)}</td></tr>`;
-  });
-  cl += '</tbody></table></div>';
-  document.getElementById('vendedorClientesAnio').innerHTML = cl;
 }
 
 // =========================================================================
