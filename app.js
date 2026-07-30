@@ -1050,28 +1050,59 @@ function renderVendedor() {
   html += '</tbody></table></div>';
   document.getElementById('vendedorTable').innerHTML = html;
 
-  // Presupuesto por Holding y por Agencia (Real vs Forecast) del vendedor seleccionado —
-  // requiere que el Forecast por vendedor traiga columnas Holding/Agencia (hol/age).
+  // Presupuesto por Holding/Agencia/Cliente del vendedor seleccionado: Venta Neta real por
+  // trimestre + Suma anual. Al pasar el mouse sobre cada celda de trimestre se muestra (en
+  // renglones con viñeta): comparativo vs Forecast trimestral, Margen real, vs Forecast de
+  // margen (Forecast Margen = Forecast Neto del trimestre × 32%, el margen objetivo).
+  const qRangos = [[1,3],[4,6],[7,9],[10,12]];
+  function quarterIdx(mes) { return Math.min(3, Math.floor((mes - 1) / 3)); }
   function buildBudgetTable(groupField, label) {
+    const emptyQ = () => [{vn:0,ut:0},{vn:0,ut:0},{vn:0,ut:0},{vn:0,ut:0}];
     const realByGroup = {};
     vData.forEach(r => {
       const k = r[groupField] || 'Sin definir';
-      realByGroup[k] = (realByGroup[k] || 0) + r.vn;
+      if (!realByGroup[k]) realByGroup[k] = { q: emptyQ(), total: 0 };
+      const qi = quarterIdx(r.mes);
+      realByGroup[k].q[qi].vn += r.vn;
+      realByGroup[k].q[qi].ut += r.ut;
+      realByGroup[k].total += r.vn;
     });
     const fcByGroup = {};
     if (showFC) {
       Engine.forecast.filter(f => f.anio === yActual && f.eje === selectedVendedor).forEach(f => {
         const k = f[groupField] || 'Sin definir';
-        fcByGroup[k] = (fcByGroup[k] || 0) + f.fcNeto;
+        if (!fcByGroup[k]) fcByGroup[k] = [0,0,0,0];
+        fcByGroup[k][quarterIdx(f.mes)] += f.fcNeto;
       });
     }
     const keys = new Set([...Object.keys(realByGroup), ...Object.keys(fcByGroup)]);
-    const rows = [...keys].map(k => ({ key: k, real: realByGroup[k] || 0, fc: fcByGroup[k] || 0 })).sort((a,b) => b.real - a.real);
+    const rows = [...keys].map(k => ({
+      key: k,
+      real: realByGroup[k] || { q: emptyQ(), total: 0 },
+      fc: fcByGroup[k] || [0,0,0,0],
+    })).sort((a,b) => b.real.total - a.real.total);
     if (rows.length === 0) return '<div style="padding:14px;color:var(--text-muted);text-align:center">Sin datos</div>';
-    let out = `<div class="table-wrap"><table class="table-default"><thead class="top"><tr><th>${label}</th><th class="num">V. Neta Real</th><th class="num">Forecast Neto</th><th class="num">Alcance %</th></tr></thead><tbody>`;
+
+    function buildQTip(realQ, fcNetoQ) {
+      const lines = [];
+      if (showFC && fcNetoQ) {
+        lines.push(`vs Forecast trimestral: ${fmtPct(realQ.vn/fcNetoQ*100)} (${fmtMoney(realQ.vn)} vs ${fmtMoney(fcNetoQ)})`);
+      }
+      lines.push(`Margen real: ${fmtMoney(realQ.ut)}`);
+      if (showFC && fcNetoQ) {
+        const fcMargenQ = fcNetoQ * MARGEN_OBJETIVO;
+        lines.push(`vs Forecast de margen: ${fcMargenQ ? fmtPct(realQ.ut/fcMargenQ*100) : '—'} (${fmtMoney(realQ.ut)} vs ${fmtMoney(fcMargenQ)})`);
+      }
+      return lines.map(l => `• ${l}`).join('\n');
+    }
+
+    let out = `<div class="table-wrap"><table class="table-default"><thead class="top"><tr><th>${label}</th><th class="num">Q1</th><th class="num">Q2</th><th class="num">Q3</th><th class="num">Q4</th><th class="num">Suma anual</th></tr></thead><tbody>`;
     rows.forEach(row => {
-      const alc = row.fc ? row.real / row.fc * 100 : null;
-      out += `<tr><td><b>${row.key}</b></td><td class="num">${fmtMoney(row.real)}</td><td class="num" style="color:var(--text-muted)">${showFC ? fmtMoney(row.fc) : '—'}</td><td class="num ${alc===null?'':alcanceColor(alc)}">${alc===null?'—':fmtPct(alc)}</td></tr>`;
+      out += `<tr><td><b>${row.key}</b></td>`;
+      for (let qi = 0; qi < 4; qi++) {
+        out += `<td class="num" data-tip="${buildQTip(row.real.q[qi], row.fc[qi])}">${fmtMoney(row.real.q[qi].vn)}</td>`;
+      }
+      out += `<td class="num"><b>${fmtMoney(row.real.total)}</b></td></tr>`;
     });
     out += '</tbody></table></div>';
     return out;
@@ -1079,7 +1110,7 @@ function renderVendedor() {
   document.getElementById('vendedorPorHolding').innerHTML = buildBudgetTable('hol', 'Holding');
   document.getElementById('vendedorPorAgencia').innerHTML = buildBudgetTable('age', 'Agencia');
 
-  // Alcance por Cliente: mismo mecanismo Real vs Forecast que Holding/Agencia, agrupado por cliente
+  // Alcance por Cliente: mismo mecanismo trimestral que Holding/Agencia, agrupado por cliente
   document.getElementById('vendedorAlcanceCliente').innerHTML = buildBudgetTable('cli', 'Cliente');
 
   // Alcance trimestral: venta y margen PROPIOS de cada trimestre vs el Forecast de ESE
