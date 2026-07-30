@@ -1083,23 +1083,39 @@ function renderVendedor() {
     })).sort((a,b) => b.real.total - a.real.total);
     if (rows.length === 0) return '<div style="padding:14px;color:var(--text-muted);text-align:center">Sin datos</div>';
 
+    // Si el Forecast está cargado pero un cliente/trimestre no tiene forecast asignado,
+    // se toma como $0 — así cualquier venta real ya "supera" el forecast (verde) y se
+    // puede seguir comparando, en vez de dejar la celda sin color/sin dato.
     function buildQTip(realQ, fcNetoQ) {
       const lines = [];
-      if (showFC && fcNetoQ) {
-        lines.push(`vs Forecast trimestral: ${fmtPct(realQ.vn/fcNetoQ*100)} (${fmtMoney(realQ.vn)} vs ${fmtMoney(fcNetoQ)})`);
+      if (showFC) {
+        if (fcNetoQ) {
+          lines.push(`vs Forecast trimestral: ${fmtPct(realQ.vn/fcNetoQ*100)} (${fmtMoney(realQ.vn)} vs ${fmtMoney(fcNetoQ)})`);
+        } else if (realQ.vn > 0) {
+          lines.push(`vs Forecast trimestral: sin Forecast asignado (se toma como $0) — venta real ${fmtMoney(realQ.vn)}`);
+        }
       }
       lines.push(`Margen real: ${fmtMoney(realQ.ut)}`);
-      if (showFC && fcNetoQ) {
+      if (showFC) {
         const fcMargenQ = fcNetoQ * MARGEN_OBJETIVO;
-        lines.push(`vs Forecast de margen: ${fcMargenQ ? fmtPct(realQ.ut/fcMargenQ*100) : '—'} (${fmtMoney(realQ.ut)} vs ${fmtMoney(fcMargenQ)})`);
+        if (fcNetoQ) {
+          lines.push(`vs Forecast de margen: ${fcMargenQ ? fmtPct(realQ.ut/fcMargenQ*100) : '—'} (${fmtMoney(realQ.ut)} vs ${fmtMoney(fcMargenQ)})`);
+        } else if (realQ.ut > 0) {
+          lines.push(`vs Forecast de margen: sin Forecast asignado (se toma como $0) — margen real ${fmtMoney(realQ.ut)}`);
+        }
       }
       return lines.map(l => `• ${l}`).join('\n');
     }
-    // Verde ≥100% de alcance, amarillo 85-99%, rojo <85%. Sin forecast = sin color.
+    // Verde ≥100% de alcance, amarillo 85-99%, rojo <85%. Sin Forecast cargado = sin color;
+    // con Forecast cargado pero $0 asignado a este trimestre, cualquier venta real cuenta
+    // como alcance superado (verde); $0 real contra $0 forecast se queda sin color.
     function quarterAlcanceCls(realQ, fcNetoQ) {
-      if (!fcNetoQ) return '';
-      const pct = realQ.vn / fcNetoQ * 100;
-      return pct >= 100 ? 'alc-good' : pct >= 85 ? 'alc-warn' : 'alc-bad';
+      if (!showFC) return '';
+      if (fcNetoQ > 0) {
+        const pct = realQ.vn / fcNetoQ * 100;
+        return pct >= 100 ? 'alc-good' : pct >= 85 ? 'alc-warn' : 'alc-bad';
+      }
+      return realQ.vn > 0 ? 'alc-good' : '';
     }
 
     let out = `<div class="table-wrap"><table class="table-default"><thead class="top"><tr><th>${label}</th><th class="num">Q1</th><th class="num">Q2</th><th class="num">Q3</th><th class="num">Q4</th><th class="num">Suma anual</th></tr></thead><tbody>`;
