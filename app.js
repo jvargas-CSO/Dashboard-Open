@@ -1082,17 +1082,35 @@ function renderVendedor() {
   // Alcance por Cliente: mismo mecanismo Real vs Forecast que Holding/Agencia, agrupado por cliente
   document.getElementById('vendedorAlcanceCliente').innerHTML = buildBudgetTable('cli', 'Cliente');
 
-  // Alcance trimestral acumulado (Ene→fin de trimestre) vs Forecast ANUAL completo — Venta Neta
-  // y Margen (Forecast Margen = Forecast Neto anual × 32%, el margen objetivo de la empresa).
-  const trimestres = [[0,3,'Q1 · Ene-Mar'],[0,6,'Q2 · Ene-Jun'],[0,9,'Q3 · Ene-Sep'],[0,12,'Q4 · Ene-Dic']];
-  const totFCMargenAnual = totFCNeto * MARGEN_OBJETIVO;
-  let tq = '<div class="table-wrap"><table class="table-default"><thead class="top"><tr><th>Trimestre</th><th class="num">Venta Neta Acum.</th><th class="num">% vs Forecast Anual</th><th class="num">Margen Acum.</th><th class="num">% vs Forecast Margen Anual</th></tr></thead><tbody>';
+  // Alcance trimestral: venta y margen PROPIOS de cada trimestre vs el Forecast de ESE
+  // mismo trimestre (no acumulado, no vs Forecast anual). Margen Forecast = Forecast Neto
+  // del trimestre × 32%, el margen objetivo de la empresa. Al pasar el mouse sobre el
+  // trimestre se muestra el acumulado real ese trimestre + los anteriores (Ene→fin de Q).
+  const trimestres = [[0,3,'Q1 · Ene-Mar'],[3,6,'Q2 · Abr-Jun'],[6,9,'Q3 · Jul-Sep'],[9,12,'Q4 · Oct-Dic']];
+  function buildTrimTip(finIdx) {
+    const vnAcum = sumTo(vn, finIdx - 1);
+    const utAcum = sumTo(ut, finIdx - 1);
+    let tip = `Acumulado Ene-${MESES_FULL[finIdx-1]}:\n• Venta Neta: ${fmtMoney(vnAcum)}`;
+    if (showFC) {
+      const fcAcum = sumTo(fcNeto, finIdx - 1);
+      if (fcAcum) tip += ` (${fmtPct(vnAcum/fcAcum*100)} vs Forecast acum. ${fmtMoney(fcAcum)})`;
+    }
+    tip += `\n• Margen: ${fmtMoney(utAcum)}`;
+    if (showFC) {
+      const fcMargenAcum = sumTo(fcNeto, finIdx - 1) * MARGEN_OBJETIVO;
+      if (fcMargenAcum) tip += ` (${fmtPct(utAcum/fcMargenAcum*100)} vs Forecast Margen acum. ${fmtMoney(fcMargenAcum)})`;
+    }
+    return tip;
+  }
+  let tq = '<div class="table-wrap"><table class="table-default"><thead class="top"><tr><th>Trimestre</th><th class="num">Venta Neta</th><th class="num">% vs Forecast Trim.</th><th class="num">Margen</th><th class="num">% vs Forecast Margen Trim.</th></tr></thead><tbody>';
   trimestres.forEach(([ini, fin, label]) => {
-    const vnAcum = vn.slice(ini, fin).reduce((a,b)=>a+b, 0);
-    const utAcum = ut.slice(ini, fin).reduce((a,b)=>a+b, 0);
-    const pctVenta = showFC && totFCNeto ? vnAcum/totFCNeto*100 : null;
-    const pctMargen = showFC && totFCMargenAnual ? utAcum/totFCMargenAnual*100 : null;
-    tq += `<tr><td><b>${label}</b></td><td class="num">${fmtMoney(vnAcum)}</td><td class="num ${pctVenta===null?'':alcanceColor(pctVenta)}">${pctVenta===null?'—':fmtPct(pctVenta)}</td><td class="num">${fmtMoney(utAcum)}</td><td class="num ${pctMargen===null?'':alcanceColor(pctMargen)}">${pctMargen===null?'—':fmtPct(pctMargen)}</td></tr>`;
+    const vnQ = vn.slice(ini, fin).reduce((a,b)=>a+b, 0);
+    const utQ = ut.slice(ini, fin).reduce((a,b)=>a+b, 0);
+    const fcNetoQ = showFC ? fcNeto.slice(ini, fin).reduce((a,b)=>a+b, 0) : 0;
+    const fcMargenQ = fcNetoQ * MARGEN_OBJETIVO;
+    const pctVenta = showFC && fcNetoQ ? vnQ/fcNetoQ*100 : null;
+    const pctMargen = showFC && fcMargenQ ? utQ/fcMargenQ*100 : null;
+    tq += `<tr><td data-tip="${buildTrimTip(fin)}"><b>${label}</b></td><td class="num">${fmtMoney(vnQ)}</td><td class="num ${pctVenta===null?'':alcanceColor(pctVenta)}">${pctVenta===null?'—':fmtPct(pctVenta)}</td><td class="num">${fmtMoney(utQ)}</td><td class="num ${pctMargen===null?'':alcanceColor(pctMargen)}">${pctMargen===null?'—':fmtPct(pctMargen)}</td></tr>`;
   });
   tq += '</tbody></table></div>';
   document.getElementById('vendedorTrimestral').innerHTML = tq;
