@@ -52,7 +52,9 @@ function requestGoogleToken({ silent = false } = {}) {
 
 async function fetchWorkbookFromDrive(sheetId, { retried = false } = {}) {
   const mime = encodeURIComponent('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-  const res = await fetch(`https://www.googleapis.com/drive/v3/files/${sheetId}/export?mimeType=${mime}`, {
+  // supportsAllDrives=true: necesario para que la API encuentre archivos que viven dentro
+  // de un Drive compartido de la organización (no solo el Drive personal del usuario).
+  const res = await fetch(`https://www.googleapis.com/drive/v3/files/${sheetId}/export?mimeType=${mime}&supportsAllDrives=true`, {
     headers: { Authorization: `Bearer ${googleAccessToken}` },
   });
   if (res.status === 401 && !retried) {
