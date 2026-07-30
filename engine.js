@@ -545,26 +545,47 @@ function processForecastWorkbook(workbook, year=2026) {
 // =========================================================================
 function processContactosWorkbook(workbook) {
   const records = [];
+  const normHeader = s => String(s || '').trim().toLowerCase();
   workbook.SheetNames.forEach(sheetName => {
     const sheet = workbook.Sheets[sheetName];
-    const rows = XLSX.utils.sheet_to_json(sheet, { defval: null });
-    rows.forEach(r => {
-      const contacto = titleCase(r['Contacto'] || '');
-      if (!contacto) return; // fila vacía / sin persona
+    // Se lee como filas crudas (sin asumir encabezados en el renglón 1) porque la hoja
+    // puede traer un renglón/banner arriba de los encabezados reales (ej. el nombre de
+    // una vista filtrada de Google Sheets) — se busca la fila que de verdad contiene la
+    // columna "Contacto" entre las primeras 10, y esa se usa como encabezado real.
+    const raw = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null });
+    if (!raw.length) return;
+    let headerRowIdx = -1;
+    for (let i = 0; i < Math.min(10, raw.length); i++) {
+      if ((raw[i] || []).some(cell => normHeader(cell) === 'contacto')) { headerRowIdx = i; break; }
+    }
+    if (headerRowIdx === -1) return; // esta hoja no tiene la tabla de contactos
+
+    const colIdx = {};
+    (raw[headerRowIdx] || []).forEach((h, i) => { colIdx[normHeader(h)] = i; });
+    const get = (row, name) => {
+      const idx = colIdx[normHeader(name)];
+      return idx == null ? null : row[idx];
+    };
+
+    for (let i = headerRowIdx + 1; i < raw.length; i++) {
+      const row = raw[i];
+      if (!row) continue;
+      const contacto = titleCase(get(row, 'Contacto') || '');
+      if (!contacto) continue; // fila vacía / sin persona
       records.push({
-        cliente: titleCase(r['Cliente'] || '') || 'Sin definir',
-        aaa: !!(r['AAA'] && String(r['AAA']).trim()),
-        clienteActual: !!(r['Cliente actual'] && String(r['Cliente actual']).trim()),
-        agencia: titleCase(r['Agencia'] || '') || 'Sin definir',
-        holding: titleCase(r['Holding'] || '') || 'Sin definir',
-        eje: normEjecutivo(r['Ejecutivo Open'] || r['Ejecutivo'] || ''),
+        cliente: titleCase(get(row, 'Cliente') || '') || 'Sin definir',
+        aaa: !!(get(row, 'AAA') && String(get(row, 'AAA')).trim()),
+        clienteActual: !!(get(row, 'Cliente actual') && String(get(row, 'Cliente actual')).trim()),
+        agencia: titleCase(get(row, 'Agencia') || '') || 'Sin definir',
+        holding: titleCase(get(row, 'Holding') || '') || 'Sin definir',
+        eje: normEjecutivo(get(row, 'Ejecutivo Open') || get(row, 'Ejecutivo') || ''),
         contacto,
-        email: String(r['Email'] || '').trim(),
-        puesto: String(r['Puesto de trabajo'] || '').trim(),
-        perfil: String(r['Perfil de persona'] || '').trim(),
-        cumpleanos: r['Cumpleaños'] || null,
+        email: String(get(row, 'Email') || '').trim(),
+        puesto: String(get(row, 'Puesto de trabajo') || '').trim(),
+        perfil: String(get(row, 'Perfil de persona') || '').trim(),
+        cumpleanos: get(row, 'Cumpleaños') || null,
       });
-    });
+    }
   });
   return records;
 }
