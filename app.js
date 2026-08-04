@@ -353,6 +353,9 @@ function populateFilters() {
   // Ejecutivos: solo los activos en 2026 (con forecast). Si no hay forecast cargado, todos.
   const ejesActivos = forecastLoaded ? Engine.vendedoresActivos2026() : uniq('eje');
   fillSel('f-eje', ejesActivos.map(v=>({v,t:v})));
+  // Mismo listado de ejecutivos que el filtro global de arriba, para el filtro local de Campañas.
+  fillSel('campanaFiltroEje', ejesActivos.map(v=>({v,t:v})));
+  fillSel('campanaFiltroCoord', ['Sin asignar', ...COORDINADOR_OPTIONS].map(v=>({v,t:v})));
   fillSel('f-est', uniq('est').map(v=>({v,t:v})));
   fillSel('f-loc', uniq('loc').map(v=>({v,t:v})));
   // Categorías ordenadas según CATEGORIAS_MIX
@@ -501,6 +504,13 @@ function attachListeners() {
       saveCampanaControlField(e.target.dataset.cm, 'aaa', e.target.value);
     }
   });
+  document.getElementById('campanaFiltroEje').addEventListener('change', e => {
+    filters.eje = e.target.value;
+    document.getElementById('f-eje').value = e.target.value; // mantener sincronizado el filtro global
+    render();
+  });
+  document.getElementById('campanaFiltroAAA').addEventListener('change', renderCampanas);
+  document.getElementById('campanaFiltroCoord').addEventListener('change', renderCampanas);
   setupIA();
 }
 function resetFilters() {
@@ -2324,7 +2334,23 @@ function renderCampanas() {
     if (r.fechaInicio) { const d = new Date(r.fechaInicio); if (!isNaN(d) && (!g.fechaInicio || d < g.fechaInicio)) g.fechaInicio = d; }
     if (r.fechaFin) { const d = new Date(r.fechaFin); if (!isNaN(d) && (!g.fechaFin || d > g.fechaFin)) g.fechaFin = d; }
   });
-  const campanas = Object.values(porCM).sort((a,b) => (b.fechaInicio||0) - (a.fechaInicio||0));
+  let campanas = Object.values(porCM).sort((a,b) => (b.fechaInicio||0) - (a.fechaInicio||0));
+
+  // Filtros locales de la tabla (Cliente AAA y Coordinador no existen en el filtro global
+  // de arriba, así que se aplican aquí, sobre lo que ya dejó Engine.applyFilters). El
+  // selector de Ejecutivo de aquí es un espejo del filtro global — no filtra por separado,
+  // solo mantiene su valor sincronizado y usa el mismo estado (filters.eje).
+  const ejeSel = document.getElementById('campanaFiltroEje');
+  if (ejeSel) ejeSel.value = filters.eje || '';
+  const filtroAAA = document.getElementById('campanaFiltroAAA')?.value || '';
+  const filtroCoord = document.getElementById('campanaFiltroCoord')?.value || '';
+  if (filtroAAA) campanas = campanas.filter(c => (controlMap[c.cm]?.aaa || '') === filtroAAA);
+  if (filtroCoord) {
+    campanas = campanas.filter(c => filtroCoord === 'Sin asignar'
+      ? !(controlMap[c.cm]?.coordinador)
+      : (controlMap[c.cm]?.coordinador || '') === filtroCoord);
+  }
+
   campanasCurrentList = campanas;
 
   let html = '<div class="table-wrap"><table class="table-default"><thead class="top"><tr>'

@@ -1401,7 +1401,19 @@ tbody tr:hover { background: var(--bg-card-hover); }
     <div class="card full">
       <div class="card-header">
         <div class="card-title">Campañas</div>
-        <div class="card-actions">
+        <div class="card-actions" style="gap:10px;flex-wrap:wrap;align-items:flex-end">
+          <div class="filter-group" style="width:160px">
+            <label>Ejecutivo</label>
+            <select id="campanaFiltroEje"><option value="">Todos</option></select>
+          </div>
+          <div class="filter-group" style="width:140px">
+            <label>Cliente AAA</label>
+            <select id="campanaFiltroAAA"><option value="">Todos</option><option value="Si">Sí</option><option value="No">No</option></select>
+          </div>
+          <div class="filter-group" style="width:160px">
+            <label>Coordinador</label>
+            <select id="campanaFiltroCoord"><option value="">Todos</option></select>
+          </div>
           <input type="text" class="tbl-search" placeholder="Buscar campaña..." data-target="#tblCampanas table">
         </div>
       </div>
