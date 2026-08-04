@@ -431,6 +431,13 @@ function attachListeners() {
   document.getElementById('rpModalOverlay').addEventListener('click', e => {
     if (e.target.id === 'rpModalOverlay') closeRPProfile();
   });
+  document.addEventListener('change', e => {
+    if (e.target.classList.contains('campana-peso-input')) {
+      setLocalMapValue('campanasPesos', e.target.dataset.cm, e.target.value);
+    } else if (e.target.classList.contains('campana-coord-select')) {
+      setLocalMapValue('campanasCoordinadores', e.target.dataset.cm, e.target.value);
+    }
+  });
   setupIA();
 }
 function resetFilters() {
@@ -2175,6 +2182,20 @@ function computeCampanaStatus(fechaInicio, fechaFin) {
   if ((df - hoy) <= unaSemanaMs) return { label: 'Fin Próximo', cls: 'warning' };
   return { label: 'En curso', cls: 'success' };
 }
+// Coordinador y Peso son campos editables manualmente (no vienen de Data Comercial).
+// Se guardan en localStorage por CM — persisten al recargar en este mismo navegador,
+// pero NO se comparten entre distintas personas/computadoras (no hay backend propio;
+// ver la conversación pausada sobre guardar datos de vuelta a Google Sheets).
+const COORDINADOR_OPTIONS = ['Jasso', 'Chio', 'Yeudiel', 'Aye', 'Pablo'];
+function getLocalMap(key) {
+  try { return JSON.parse(localStorage.getItem(key)) || {}; } catch (e) { return {}; }
+}
+function setLocalMapValue(key, cm, value) {
+  const map = getLocalMap(key);
+  if (value === '' || value == null) delete map[cm]; else map[cm] = value;
+  localStorage.setItem(key, JSON.stringify(map));
+}
+
 function renderCampanas() {
   const data = Engine.applyFilters(filters);
   const fact = Engine.facturable(data);
@@ -2191,11 +2212,16 @@ function renderCampanas() {
   });
   const campanas = Object.values(porCM).sort((a,b) => (b.fechaInicio||0) - (a.fechaInicio||0));
 
+  const pesoMap = getLocalMap('campanasPesos');
+  const coordMap = getLocalMap('campanasCoordinadores');
+
   let html = '<div class="table-wrap"><table class="table-default"><thead class="top"><tr>'
-    + '<th>Campaña</th><th>CM</th><th>Cliente</th><th>Fecha Inicio</th><th>Fecha Fin</th><th>Duración</th><th class="num">Medios</th><th class="num">Proveedores</th><th>Status</th><th>Coordinador</th><th>Ejecutivo</th>'
+    + '<th>Campaña</th><th>CM</th><th>Cliente</th><th>Fecha Inicio</th><th>Fecha Fin</th><th>Duración</th><th class="num">Medios</th><th class="num">Proveedores</th><th>Status</th><th class="num">Peso</th><th>Coordinador</th><th>Ejecutivo</th>'
     + '</tr></thead><tbody>';
   campanas.forEach(c => {
     const status = computeCampanaStatus(c.fechaInicio, c.fechaFin);
+    const pesoVal = pesoMap[c.cm] ?? '';
+    const coordVal = coordMap[c.cm] || '';
     html += `<tr><td><b>${c.cmp}</b></td>`
       + `<td><a href="#" class="cm-link" data-cm="${c.cm}" style="color:var(--primary);text-decoration:underline;cursor:pointer">${c.cm}</a></td>`
       + `<td>${c.cli || '—'}</td>`
@@ -2205,7 +2231,8 @@ function renderCampanas() {
       + `<td class="num">${c.medios.size}</td>`
       + `<td class="num">${c.provs.size}</td>`
       + `<td><span class="pill ${status.cls}">${status.label}</span></td>`
-      + `<td style="color:var(--text-muted)">Sin asignar</td>`
+      + `<td class="num"><input type="number" step="0.01" class="campana-peso-input" data-cm="${c.cm}" value="${pesoVal}" placeholder="—" style="width:75px;text-align:right"></td>`
+      + `<td><select class="campana-coord-select" data-cm="${c.cm}"><option value="">Sin asignar</option>${COORDINADOR_OPTIONS.map(o => `<option value="${o}" ${coordVal === o ? 'selected' : ''}>${o}</option>`).join('')}</select></td>`
       + `<td>${c.eje || '—'}</td></tr>`;
   });
   html += '</tbody></table></div>';
