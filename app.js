@@ -23,9 +23,17 @@ const DRIVE_SHEETS = {
   forecast: '1GNm0czUzY-WF5S8BtV-jqvxjNZ6KNbpZnI1O-nlvsb0',
   contactos: '1lU01rzAgZN3EG2NBrcI7Itx-wzro65lk',
 };
+// "Hoja de control" — a diferencia de las demás, esta se LEE y ESCRIBE vía la Sheets API
+// (no solo se lee vía Drive export) para guardar AAA/Peso/Coordinador de Campañas de forma
+// compartida entre todos los que usan el dashboard, en vez de localStorage (por navegador).
+const CONTROL_SHEET_ID = '1q1wBDJTQwblHc21i69SDlmY7VBvaGfE1LqiISDkgVHA';
+const CONTROL_SHEET_TAB = 'Hoja de control';
 // Client ID de OAuth (Google Cloud Console > APIs & Services > Credentials > OAuth client ID).
 const GOOGLE_CLIENT_ID = '929626244128-ft82mdkvt7rftvg9ajg5kqiocams1a72.apps.googleusercontent.com';
-const GOOGLE_SCOPE = 'https://www.googleapis.com/auth/drive.readonly';
+// spreadsheets (lectura+escritura) se agregó para poder guardar Campañas → Hoja de control.
+// Cualquiera que ya tuviera una sesión abierta con el scope viejo verá un nuevo cuadro de
+// consentimiento de Google la próxima vez que inicie sesión.
+const GOOGLE_SCOPE = 'https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/spreadsheets';
 
 let googleAccessToken = null;
 let tokenClient = null;
@@ -50,13 +58,19 @@ function requestGoogleToken({ silent = false } = {}) {
   });
 }
 
-// Pide una URL a la API de Drive con reintento automático de token si expiró (401).
-async function driveApiRequest(url, { retried = false } = {}) {
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${googleAccessToken}` } });
+// Pide una URL a la API de Drive/Sheets con reintento automático de token si expiró (401).
+// method/body: para escrituras (PUT/POST) contra la Sheets API; por defecto GET.
+async function driveApiRequest(url, { retried = false, method = 'GET', body = null } = {}) {
+  const opts = { method, headers: { Authorization: `Bearer ${googleAccessToken}` } };
+  if (body != null) {
+    opts.headers['Content-Type'] = 'application/json';
+    opts.body = JSON.stringify(body);
+  }
+  const res = await fetch(url, opts);
   if (res.status === 401 && !retried) {
     try { await requestGoogleToken({ silent: true }); }
     catch (_) { const e = new Error('Tu sesión de Google expiró.'); e.code = 'AUTH_REQUIRED'; throw e; }
-    return driveApiRequest(url, { retried: true });
+    return driveApiRequest(url, { retried: true, method, body });
   }
   if (res.status === 401) { const e = new Error('Tu sesión de Google expiró.'); e.code = 'AUTH_REQUIRED'; throw e; }
   if (res.status === 403) { const e = new Error('Tu cuenta de Google no tiene acceso a este Sheet. Pide que te compartan el archivo.'); e.code = 'NO_ACCESS'; throw e; }
@@ -82,6 +96,39 @@ async function fetchWorkbookFromDrive(sheetId) {
   return XLSX.read(buf, { type: 'array', cellDates: true });
 }
 
+// =========================================================================
+// SHEETS API — lectura/escritura de "Hoja de control" (AAA/Peso/Coordinador
+// de Campañas). A diferencia de fetchWorkbookFromDrive (solo lectura vía
+// Drive export), esto usa la Sheets API v4 directamente para poder escribir.
+// =========================================================================
+async function fetchControlSheetRows() {
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${CONTROL_SHEET_ID}/values/${encodeURIComponent(CONTROL_SHEET_TAB)}`;
+  const res = await driveApiRequest(url);
+  const json = await res.json();
+  return json.values || [];
+}
+
+// Actualiza el renglón de un CM si ya existe, o lo agrega al final si es la primera vez
+// que se edita esa campaña. controlRowByCM guarda en qué renglón (1-indexado) vive cada
+// CM, para no tener que buscarlo cada vez.
+async function saveControlRow(cm, rowValues) {
+  const existingRow = controlRowByCM[cm];
+  if (existingRow) {
+    const range = `${CONTROL_SHEET_TAB}!A${existingRow}:M${existingRow}`;
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${CONTROL_SHEET_ID}/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`;
+    await driveApiRequest(url, { method: 'PUT', body: { values: [rowValues] } });
+  } else {
+    const range = `${CONTROL_SHEET_TAB}!A:M`;
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${CONTROL_SHEET_ID}/values/${encodeURIComponent(range)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
+    const res = await driveApiRequest(url, { method: 'POST', body: { values: [rowValues] } });
+    const json = await res.json();
+    // "Hoja de control!A15:M15" -> 15. Se guarda para que la próxima edición de este
+    // mismo CM actualice el renglón en vez de volver a agregarlo al final.
+    const match = /![A-Z]+(\d+):/.exec(json.updates && json.updates.updatedRange || '');
+    if (match) controlRowByCM[cm] = parseInt(match[1]);
+  }
+}
+
 const filters = { anio:'', mes:'', emp:'', eje:'', est:'', loc:'', cat:'', hol:'', cli:'', tp:'', cc:'', statusOpen: ['Suma Forecast'] };
 let charts = {};
 let selectedVendedor = '';
@@ -92,6 +139,10 @@ let dataLoaded = false;
 let forecastLoaded = false;
 let contactosLoaded = false;
 let rpCurrentList = [];
+let controlLoaded = false;
+let controlMap = {}; // cm -> { aaa, peso, coordinador }
+let controlRowByCM = {}; // cm -> número de renglón en Hoja de control (1-indexado)
+let campanasCurrentList = []; // último `campanas` calculado en renderCampanas(), para poder armar el renglón completo al guardar
 let iaAutoInsightsGenerated = false;
 
 // =========================================================================
@@ -180,6 +231,16 @@ async function loadFromDriveAndBoot({ silent = false } = {}) {
     } catch (rpErr) {
       console.error('No se pudo cargar Contactos desde Drive:', rpErr);
       contactosLoaded = false;
+    }
+
+    if (!silent) setDzStatus('Cargando Hoja de control (Campañas)…');
+    try {
+      const controlValues = await fetchControlSheetRows();
+      parseControlSheetRows(controlValues);
+      controlLoaded = true;
+    } catch (ctrlErr) {
+      console.error('No se pudo cargar la Hoja de control:', ctrlErr);
+      controlLoaded = false;
     }
 
     if (silent) {
@@ -433,9 +494,11 @@ function attachListeners() {
   });
   document.addEventListener('change', e => {
     if (e.target.classList.contains('campana-peso-input')) {
-      setLocalMapValue('campanasPesos', e.target.dataset.cm, e.target.value);
+      saveCampanaControlField(e.target.dataset.cm, 'peso', e.target.value);
     } else if (e.target.classList.contains('campana-coord-select')) {
-      setLocalMapValue('campanasCoordinadores', e.target.dataset.cm, e.target.value);
+      saveCampanaControlField(e.target.dataset.cm, 'coordinador', e.target.value);
+    } else if (e.target.classList.contains('campana-aaa-select')) {
+      saveCampanaControlField(e.target.dataset.cm, 'aaa', e.target.value);
     }
   });
   setupIA();
@@ -1662,7 +1725,7 @@ function renderEstrategia() {
   } else {
     htmlVence = '<div class="table-wrap"><table><thead class="top"><tr><th>Cliente</th><th>Vendedor</th><th>Categoría</th><th>Fecha Fin</th><th class="num">Venta Bruta</th></tr></thead><tbody>';
     porVencer.forEach(r => {
-      htmlVence += `<tr><td><b>${r.cli}</b></td><td>${r.eje}</td><td>${r.cat}</td><td>${new Date(r.fechaFin).toLocaleDateString('es-MX')}</td><td class="num">${fmtMoney(r.vb)}</td></tr>`;
+      htmlVence += `<tr><td><b>${r.cli}</b></td><td>${r.eje}</td><td>${r.cat}</td><td>${new Date(r.fechaFin).toLocaleDateString('es-MX', {timeZone:'UTC'})}</td><td class="num">${fmtMoney(r.vb)}</td></tr>`;
     });
     htmlVence += '</tbody></table></div>';
   }
@@ -2127,7 +2190,7 @@ function renderCMDetail() {
     {label:'Comisión ADV', val: fmtMoney(totComAdv), sub: `Total ROIs: ${fmtMoney(totROI)}`, cls:'info'},
   ].map(k=>`<div class="kpi ${k.cls}"><div class="kpi-label">${k.label}</div><div class="kpi-value">${k.val}</div><div class="kpi-sub">${k.sub}</div></div>`).join('');
 
-  const fmtDate = (d) => d ? new Date(d).toLocaleDateString('es-MX') : '—';
+  const fmtDate = (d) => d ? new Date(d).toLocaleDateString('es-MX', {timeZone:'UTC'}) : '—';
   let html = `<div class="table-wrap"><table class="table-default"><thead class="top"><tr>
     <th>Ejecutivo</th><th>Cliente</th><th>Agencia</th><th>Proveedor Comercial</th><th>Id Sitio</th>
     <th>Fecha Inicio</th><th>Fecha Fin</th><th>Localidad</th><th>Campaña</th><th>Medio</th><th>Domicilio</th>
@@ -2167,12 +2230,19 @@ function fmtDuracionMeses(fechaInicio, fechaFin) {
   const r = Math.round(meses * 10) / 10;
   return `${Number.isInteger(r) ? r.toFixed(0) : r.toFixed(1)} mes${r === 1 ? '' : 'es'}`;
 }
+// Fechas sin hora (celdas de Excel o strings tipo "2026-01-01") se interpretan como
+// medianoche UTC — reconstruir a partir de sus componentes UTC (no con setHours en hora
+// local) evita que el día se recorra hacia atrás en husos horarios detrás de UTC (México
+// incluido). Mismo problema/arreglo que fmtCumpleanos() en Relaciones Públicas.
+function fechaAMedianocheLocal(d) {
+  return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+}
 function computeCampanaStatus(fechaInicio, fechaFin) {
   if (!fechaInicio || !fechaFin) return { label: 'Sin fecha', cls: '' };
-  const di = new Date(fechaInicio), df = new Date(fechaFin);
-  if (isNaN(di) || isNaN(df)) return { label: 'Sin fecha', cls: '' };
+  const diRaw = new Date(fechaInicio), dfRaw = new Date(fechaFin);
+  if (isNaN(diRaw) || isNaN(dfRaw)) return { label: 'Sin fecha', cls: '' };
   const hoy = new Date(); hoy.setHours(0,0,0,0);
-  di.setHours(0,0,0,0); df.setHours(0,0,0,0);
+  const di = fechaAMedianocheLocal(diRaw), df = fechaAMedianocheLocal(dfRaw);
   const unaSemanaMs = 7 * 24 * 60 * 60 * 1000;
   if (df < hoy) return { label: 'Campaña Terminada', cls: '' };
   if (di > hoy) {
@@ -2182,18 +2252,61 @@ function computeCampanaStatus(fechaInicio, fechaFin) {
   if ((df - hoy) <= unaSemanaMs) return { label: 'Fin Próximo', cls: 'warning' };
   return { label: 'En curso', cls: 'success' };
 }
-// Coordinador y Peso son campos editables manualmente (no vienen de Data Comercial).
-// Se guardan en localStorage por CM — persisten al recargar en este mismo navegador,
-// pero NO se comparten entre distintas personas/computadoras (no hay backend propio;
-// ver la conversación pausada sobre guardar datos de vuelta a Google Sheets).
+// AAA, Peso y Coordinador son campos editables manualmente (no vienen de Data Comercial).
+// Se guardan en "Hoja de control" (Google Sheets, ver CONTROL_SHEET_ID) — compartido entre
+// todos los que usan el dashboard, a diferencia de localStorage (por navegador).
 const COORDINADOR_OPTIONS = ['Jasso', 'Chio', 'Yeudiel', 'Aye', 'Pablo'];
-function getLocalMap(key) {
-  try { return JSON.parse(localStorage.getItem(key)) || {}; } catch (e) { return {}; }
+const AAA_OPTIONS = ['Si', 'No'];
+
+// Igual que processContactosWorkbook: busca la fila real de encabezados (por si la hoja
+// trae un banner arriba) en vez de asumir que es el renglón 1. Llena controlMap (valores
+// actuales de AAA/Peso/Coordinador por CM) y controlRowByCM (en qué renglón está cada CM,
+// para poder actualizarlo en vez de duplicarlo la próxima vez que se edite).
+function parseControlSheetRows(values) {
+  const normHeader = s => String(s || '').trim().toLowerCase();
+  controlMap = {};
+  controlRowByCM = {};
+  if (!values || !values.length) return;
+  let headerRowIdx = -1;
+  for (let i = 0; i < Math.min(10, values.length); i++) {
+    if ((values[i] || []).some(cell => normHeader(cell) === 'cm')) { headerRowIdx = i; break; }
+  }
+  if (headerRowIdx === -1) return;
+  const colIdx = {};
+  (values[headerRowIdx] || []).forEach((h, i) => { colIdx[normHeader(h)] = i; });
+  const get = (row, name) => { const idx = colIdx[normHeader(name)]; return idx == null ? null : row[idx]; };
+  for (let i = headerRowIdx + 1; i < values.length; i++) {
+    const row = values[i];
+    if (!row) continue;
+    const cm = String(get(row, 'CM') || '').trim();
+    if (!cm) continue;
+    controlMap[cm] = {
+      aaa: String(get(row, 'AAA') || '').trim(),
+      peso: get(row, 'Peso') != null ? String(get(row, 'Peso')).trim() : '',
+      coordinador: String(get(row, 'Coordinador') || '').trim(),
+    };
+    controlRowByCM[cm] = i + 1; // Sheets es 1-indexado
+  }
 }
-function setLocalMapValue(key, cm, value) {
-  const map = getLocalMap(key);
-  if (value === '' || value == null) delete map[cm]; else map[cm] = value;
-  localStorage.setItem(key, JSON.stringify(map));
+
+// Arma el renglón completo (13 columnas, mismo orden que Hoja de control) con el estado
+// actual de una campaña + sus 3 campos editables, y lo guarda.
+async function saveCampanaControlField(cm, field, value) {
+  const c = campanasCurrentList.find(x => x.cm === cm);
+  if (!c) return;
+  if (!controlMap[cm]) controlMap[cm] = { aaa: '', peso: '', coordinador: '' };
+  controlMap[cm][field] = value;
+  const status = computeCampanaStatus(c.fechaInicio, c.fechaFin);
+  const rowValues = [
+    c.cmp, c.cm, c.cli || '', controlMap[cm].aaa,
+    c.fechaInicio ? c.fechaInicio.toLocaleDateString('es-MX', {timeZone:'UTC'}) : '',
+    c.fechaFin ? c.fechaFin.toLocaleDateString('es-MX', {timeZone:'UTC'}) : '',
+    fmtDuracionMeses(c.fechaInicio, c.fechaFin),
+    c.medios.size, c.provs.size, status.label,
+    controlMap[cm].peso, controlMap[cm].coordinador, c.eje || '',
+  ];
+  try { await saveControlRow(cm, rowValues); }
+  catch (e) { console.error('No se pudo guardar en Hoja de control:', e); alert('No se pudo guardar en la Hoja de control: ' + e.message); }
 }
 
 function renderCampanas() {
@@ -2211,28 +2324,26 @@ function renderCampanas() {
     if (r.fechaFin) { const d = new Date(r.fechaFin); if (!isNaN(d) && (!g.fechaFin || d > g.fechaFin)) g.fechaFin = d; }
   });
   const campanas = Object.values(porCM).sort((a,b) => (b.fechaInicio||0) - (a.fechaInicio||0));
-
-  const pesoMap = getLocalMap('campanasPesos');
-  const coordMap = getLocalMap('campanasCoordinadores');
+  campanasCurrentList = campanas;
 
   let html = '<div class="table-wrap"><table class="table-default"><thead class="top"><tr>'
-    + '<th>Campaña</th><th>CM</th><th>Cliente</th><th>Fecha Inicio</th><th>Fecha Fin</th><th>Duración</th><th class="num">Medios</th><th class="num">Proveedores</th><th>Status</th><th class="num">Peso</th><th>Coordinador</th><th>Ejecutivo</th>'
+    + '<th>Campaña</th><th>CM</th><th>Cliente</th><th>AAA</th><th>Fecha Inicio</th><th>Fecha Fin</th><th>Duración</th><th class="num">Medios</th><th class="num">Proveedores</th><th>Status</th><th class="num">Peso</th><th>Coordinador</th><th>Ejecutivo</th>'
     + '</tr></thead><tbody>';
   campanas.forEach(c => {
     const status = computeCampanaStatus(c.fechaInicio, c.fechaFin);
-    const pesoVal = pesoMap[c.cm] ?? '';
-    const coordVal = coordMap[c.cm] || '';
+    const ctrl = controlMap[c.cm] || { aaa: '', peso: '', coordinador: '' };
     html += `<tr><td><b>${c.cmp}</b></td>`
       + `<td><a href="#" class="cm-link" data-cm="${c.cm}" style="color:var(--primary);text-decoration:underline;cursor:pointer">${c.cm}</a></td>`
       + `<td>${c.cli || '—'}</td>`
-      + `<td>${c.fechaInicio ? c.fechaInicio.toLocaleDateString('es-MX') : '—'}</td>`
-      + `<td>${c.fechaFin ? c.fechaFin.toLocaleDateString('es-MX') : '—'}</td>`
+      + `<td><select class="campana-aaa-select" data-cm="${c.cm}"><option value="">—</option>${AAA_OPTIONS.map(o => `<option value="${o}" ${ctrl.aaa === o ? 'selected' : ''}>${o}</option>`).join('')}</select></td>`
+      + `<td>${c.fechaInicio ? c.fechaInicio.toLocaleDateString('es-MX', {timeZone:'UTC'}) : '—'}</td>`
+      + `<td>${c.fechaFin ? c.fechaFin.toLocaleDateString('es-MX', {timeZone:'UTC'}) : '—'}</td>`
       + `<td>${fmtDuracionMeses(c.fechaInicio, c.fechaFin)}</td>`
       + `<td class="num">${c.medios.size}</td>`
       + `<td class="num">${c.provs.size}</td>`
       + `<td><span class="pill ${status.cls}">${status.label}</span></td>`
-      + `<td class="num"><input type="number" step="0.01" class="campana-peso-input" data-cm="${c.cm}" value="${pesoVal}" placeholder="—" style="width:75px;text-align:right"></td>`
-      + `<td><select class="campana-coord-select" data-cm="${c.cm}"><option value="">Sin asignar</option>${COORDINADOR_OPTIONS.map(o => `<option value="${o}" ${coordVal === o ? 'selected' : ''}>${o}</option>`).join('')}</select></td>`
+      + `<td class="num"><input type="number" step="0.01" class="campana-peso-input" data-cm="${c.cm}" value="${ctrl.peso}" placeholder="—" style="width:75px;text-align:right"></td>`
+      + `<td><select class="campana-coord-select" data-cm="${c.cm}"><option value="">Sin asignar</option>${COORDINADOR_OPTIONS.map(o => `<option value="${o}" ${ctrl.coordinador === o ? 'selected' : ''}>${o}</option>`).join('')}</select></td>`
       + `<td>${c.eje || '—'}</td></tr>`;
   });
   html += '</tbody></table></div>';
