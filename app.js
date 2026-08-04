@@ -2281,7 +2281,8 @@ function parseControlSheetRows(values) {
     const cm = String(get(row, 'CM') || '').trim();
     if (!cm) continue;
     controlMap[cm] = {
-      aaa: String(get(row, 'AAA') || '').trim(),
+      // "AAA" o "Cliente AAA" (por si se pega una hoja externa que ya use ese nombre).
+      aaa: String(get(row, 'AAA') || get(row, 'Cliente AAA') || '').trim(),
       peso: get(row, 'Peso') != null ? String(get(row, 'Peso')).trim() : '',
       coordinador: String(get(row, 'Coordinador') || '').trim(),
     };
