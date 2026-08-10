@@ -1064,6 +1064,7 @@ function renderVendedor() {
   const fcUtil = fcNeto.map(v => v * MARGEN_OBJETIVO);
   const totFCNeto = fcNeto.reduce((a,b)=>a+b,0);
   const totFCBruto = fcBruto.reduce((a,b)=>a+b,0);
+  const totFCUtil = fcUtil.reduce((a,b)=>a+b,0);
 
   // Mismo mecanismo de tooltip acumulado que en Resumen: Acumulado Ene-mes, vs Forecast
   // acum., vs año pasado acum. — cada línea en su propio renglón con viñeta.
@@ -1141,10 +1142,20 @@ function renderVendedor() {
     html += `</tr>`;
   } else { for (let i=0;i<13;i++) html += `<td class="num" style="color:var(--text-muted)">—</td>`; html += `</tr>`; }
 
-  // Rentabilidad $
-  html += `<tr><td class="row-label" colspan="2">Rentabilidad $</td>`;
-  ut.forEach((v,i) => html += `<td class="num pos" data-tip="${buildTip(ut, showFC?fcUtil:null, utPrev, i)}">${fmtMoney(v)}</td>`);
-  html += `<td class="num pos"><b>${fmtMoney(totUT)}</b></td></tr>`;
+  // Forecast Rentabilidad
+  html += `<tr><td class="row-label" colspan="2">Forecast Rentabilidad</td>`;
+  if (showFC) {
+    fcUtil.forEach(v => html += `<td class="num" style="color:var(--text-muted)">${fmtMoney(v)}</td>`);
+    html += `<td class="num" style="color:var(--text-muted)"><b>${fmtMoney(totFCUtil)}</b></td></tr>`;
+  } else { for (let i=0;i<13;i++) html += `<td class="num" style="color:var(--text-muted)">—</td>`; html += `</tr>`; }
+
+  // Alcance (Rentabilidad) — $ diferencia + % apilados, misma estructura que Alcance de Venta Bruta/Neta
+  html += `<tr><td class="row-label" colspan="2">Alcance</td>`;
+  if (showFC) {
+    ut.forEach((v,i) => html += buildAlcanceCell(v, fcUtil[i]));
+    html += buildAlcanceCell(totUT, totFCUtil);
+    html += `</tr>`;
+  } else { for (let i=0;i<13;i++) html += `<td class="num" style="color:var(--text-muted)">—</td>`; html += `</tr>`; }
 
   // Rentabilidad %
   html += `<tr><td class="row-label" colspan="2">Rentabilidad %</td>`;
@@ -1236,14 +1247,20 @@ function renderVendedor() {
       return realQ.vn > 0 ? 'alc-good' : '';
     }
 
-    let out = `<div class="table-wrap"><table class="table-default"><thead class="top"><tr><th>${label}</th><th class="num">Q1</th><th class="num">Q2</th><th class="num">Q3</th><th class="num">Q4</th><th class="num">Suma anual</th></tr></thead><tbody>`;
+    let out = `<div class="table-wrap"><table class="table-default"><thead class="top"><tr><th>${label}</th><th class="num">Q1</th><th class="num">Q2</th><th class="num">Q3</th><th class="num">Q4</th><th class="num">Suma anual</th><th class="num">Forecast Venta</th><th class="num">Forecast Rentabilidad</th><th class="num">Resultados</th></tr></thead><tbody>`;
     rows.forEach(row => {
       out += `<tr><td><b>${row.key}</b></td>`;
       for (let qi = 0; qi < 4; qi++) {
         const realQ = row.real.q[qi], fcNetoQ = row.fc[qi];
         out += `<td class="num ${quarterAlcanceCls(realQ, fcNetoQ)}" data-tip="${buildQTip(realQ, fcNetoQ)}">${fmtMoney(realQ.vn)}</td>`;
       }
-      out += `<td class="num"><b>${fmtMoney(row.real.total)}</b></td></tr>`;
+      const fcVentaAnual = row.fc.reduce((a,b)=>a+b,0);
+      const fcRentabilidadAnual = fcVentaAnual * MARGEN_OBJETIVO;
+      out += `<td class="num"><b>${fmtMoney(row.real.total)}</b></td>`;
+      out += `<td class="num" style="color:var(--text-muted)">${showFC ? fmtMoney(fcVentaAnual) : '—'}</td>`;
+      out += `<td class="num" style="color:var(--text-muted)">${showFC ? fmtMoney(fcRentabilidadAnual) : '—'}</td>`;
+      out += buildAlcanceCell(row.real.total, fcVentaAnual);
+      out += `</tr>`;
     });
     out += '</tbody></table></div>';
     return out;
