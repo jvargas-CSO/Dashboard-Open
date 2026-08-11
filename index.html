@@ -915,6 +915,10 @@ tbody tr:hover { background: var(--bg-card-hover); }
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
         <span class="nav-item-text">Rentabilidad</span>
       </button>
+      <button class="nav-item nav-desktop-only" data-tab="porid">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+        <span class="nav-item-text">Por ID</span>
+      </button>
     </div>
     <div class="nav-group">
       <div class="nav-group-title">Control</div>
@@ -1375,6 +1379,23 @@ tbody tr:hover { background: var(--bg-card-hover); }
         <div class="card-header"><div class="card-title">Líneas con margen bajo o negativo</div></div>
         <div class="table-wrap" style="max-height:380px"><table class="table-default"><thead><tr><th>Cliente</th><th>Vendedor</th><th>Categoría</th><th>Localidad</th><th class="num">Venta</th><th class="num">Margen %</th></tr></thead><tbody id="tbl-bajos"></tbody></table></div>
       </div>
+    </div>
+  </section>
+
+  <section class="section" id="sec-porid">
+    <div class="alert info">📍 Un renglón por <b>Id de Sitio</b> (unidad de inventario física). Respeta los filtros del panel superior. Margen % promedio = Utilidad / Venta Neta acumulada de ese ID (no favorece a los sitios que más rotan). Haz click en un ID para ver su historial completo de precios de compra y venta — el historial siempre muestra todos los años, sin importar el filtro de Año.</div>
+    <div class="card full">
+      <div class="card-header">
+        <div class="card-title">Por ID</div>
+        <div class="card-actions">
+          <input type="text" class="tbl-search" placeholder="Buscar Id de Sitio, ubicación..." data-target="#tblPorId table">
+        </div>
+      </div>
+      <div id="tblPorId"></div>
+    </div>
+    <div class="card full" style="margin-top:14px" id="cardPorIdDetalle">
+      <div class="card-header"><div class="card-title" id="poridDetalleTitulo">Selecciona un ID para ver su detalle</div></div>
+      <div id="poridDetalle"></div>
     </div>
   </section>
 

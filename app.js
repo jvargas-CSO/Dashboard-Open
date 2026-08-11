@@ -511,6 +511,12 @@ function attachListeners() {
   });
   document.getElementById('campanaFiltroAAA').addEventListener('change', renderCampanas);
   document.getElementById('campanaFiltroCoord').addEventListener('change', renderCampanas);
+  document.addEventListener('click', e => {
+    const link = e.target.closest('.id-link');
+    if (!link) return;
+    e.preventDefault();
+    renderPorIDDetalle(link.dataset.id);
+  });
   setupIA();
 }
 function resetFilters() {
@@ -646,6 +652,7 @@ function render() {
     case 'controlesMaestros': renderControlesMaestros(); break;
     case 'campanas': renderCampanas(); break;
     case 'rp': renderRP(); break;
+    case 'porid': renderPorID(); break;
   }
   // Post-render: inyectar botones de export PNG y wire search inputs
   requestAnimationFrame(() => {
@@ -3127,6 +3134,109 @@ function renderRentabilidad() {
   document.getElementById('tbl-bajos').innerHTML = conRiesgo.length ? conRiesgo.map(r => {
     return `<tr><td>${r.cli}</td><td>${r.eje}</td><td>${r.cat}</td><td>${r.loc}</td><td class="num">${fmtMoney(r.vb)}</td><td class="num ${r.mg<0?'neg':'alc-warn'}">${fmtPct(r.mg)}</td><td class="num">${r.n}</td></tr>`;
   }).join('') : '<tr><td colspan="7" style="text-align:center;color:var(--text-muted)">Sin líneas con margen bajo</td></tr>';
+}
+
+// =========================================================================
+// POR ID — un renglón por Id de Sitio (unidad de inventario física). El
+// resumen respeta los filtros del panel superior; el detalle de un ID
+// seleccionado SIEMPRE muestra su histórico completo (todos los años),
+// para poder ver la evolución real de precios de compra/venta en el tiempo.
+// =========================================================================
+let selectedIdSitio = '';
+
+function renderPorID() {
+  const data = Engine.applyFilters(filters);
+  const fact = Engine.facturable(data);
+
+  const porId = {};
+  fact.forEach(r => {
+    if (!r.idSitio) return;
+    if (!porId[r.idSitio]) porId[r.idSitio] = {
+      idSitio: r.idSitio, domicilio: r.domicilio, med: r.med, sop: r.sop, est: r.est, loc: r.loc,
+      vb: 0, vn: 0, ut: 0, cms: new Set(), clientes: new Set(),
+    };
+    const o = porId[r.idSitio];
+    o.vb += r.vb; o.vn += r.vn; o.ut += r.ut;
+    if (r.cm) o.cms.add(r.cm);
+    if (r.cli) o.clientes.add(r.cli);
+  });
+  const rows = Object.values(porId).map(o => ({
+    ...o, nVentas: o.cms.size, nClientes: o.clientes.size,
+    margen: o.vn ? (o.ut / o.vn * 100) : 0,
+  })).sort((a, b) => b.margen - a.margen);
+
+  if (rows.length === 0) {
+    document.getElementById('tblPorId').innerHTML = '<div style="padding:14px;color:var(--text-muted);text-align:center">Sin datos para este filtro.</div>';
+    return;
+  }
+
+  let html = '<div class="table-wrap"><table class="table-default"><thead class="top"><tr>'
+    + '<th>Id de Sitio</th><th>Ubicación</th><th>Medio</th><th>Estado</th><th>Localidad</th>'
+    + '<th class="num"># Ventas</th><th class="num"># Clientes</th><th class="num">Venta Bruta</th><th class="num">Venta Neta</th><th class="num">Utilidad</th><th class="num">Margen % prom.</th>'
+    + '</tr></thead><tbody>';
+  rows.forEach(r => {
+    const cls = r.margen >= 30 ? 'alc-good' : r.margen >= 15 ? 'alc-warn' : 'alc-bad';
+    html += `<tr><td><a href="#" class="id-link" data-id="${r.idSitio}" style="color:var(--primary);text-decoration:underline;cursor:pointer"><b>${r.idSitio}</b></a></td>`
+      + `<td>${r.domicilio || '—'}</td><td>${r.med || '—'}</td><td>${r.est || '—'}</td><td>${r.loc || '—'}</td>`
+      + `<td class="num">${r.nVentas}</td><td class="num">${r.nClientes}</td>`
+      + `<td class="num">${fmtMoney(r.vb)}</td><td class="num">${fmtMoney(r.vn)}</td><td class="num pos">${fmtMoney(r.ut)}</td>`
+      + `<td class="num ${cls}">${fmtPct(r.margen)}</td></tr>`;
+  });
+  html += '</tbody></table></div>';
+  document.getElementById('tblPorId').innerHTML = html;
+
+  // Si ya había un ID seleccionado (de una visita anterior a la pestaña), refresca su detalle.
+  if (selectedIdSitio) renderPorIDDetalle(selectedIdSitio);
+}
+
+function renderPorIDDetalle(idSitio) {
+  selectedIdSitio = idSitio;
+  const lineas = Engine.records
+    .filter(r => r.idSitio === idSitio)
+    .sort((a, b) => (a.fechaInicio ? new Date(a.fechaInicio) : 0) - (b.fechaInicio ? new Date(b.fechaInicio) : 0));
+
+  document.getElementById('poridDetalleTitulo').textContent = `Historial de precios · ${idSitio}`;
+
+  if (lineas.length === 0) {
+    document.getElementById('poridDetalle').innerHTML = '<div style="padding:14px;color:var(--text-muted);text-align:center">Sin historial para este ID.</div>';
+    return;
+  }
+
+  const fmtDate = d => d ? new Date(d).toLocaleDateString('es-MX', { timeZone: 'UTC' }) : '—';
+  let html = '<div class="table-wrap"><table class="table-default"><thead class="top"><tr>'
+    + '<th>Año</th><th>Cliente</th><th>Campaña</th><th>Fecha Inicio</th><th>Fecha Fin</th>'
+    + '<th class="num">Venta Bruta</th><th class="num">Venta Neta</th><th class="num">Costo Proveedor</th><th class="num">Utilidad</th><th class="num">Margen %</th><th>Vendedor</th>'
+    + '</tr></thead><tbody>';
+  lineas.forEach(r => {
+    const margen = r.vn ? (r.ut / r.vn * 100) : 0;
+    const cls = margen >= 30 ? 'alc-good' : margen >= 15 ? 'alc-warn' : 'alc-bad';
+    html += `<tr><td>${r.anio || '—'}</td><td>${r.cli || '—'}</td><td>${r.cmp || '—'}</td>`
+      + `<td>${fmtDate(r.fechaInicio)}</td><td>${fmtDate(r.fechaFin)}</td>`
+      + `<td class="num">${fmtMoney(r.vb)}</td><td class="num">${fmtMoney(r.vn)}</td><td class="num" style="color:var(--text-muted)">${fmtMoney(r.costoUnitProveedor)}</td>`
+      + `<td class="num pos">${fmtMoney(r.ut)}</td><td class="num ${cls}">${fmtPct(margen)}</td><td>${r.eje || '—'}</td></tr>`;
+  });
+  html += '</tbody></table></div>';
+
+  // Lista de clientes distintos que han comprado este ID, con total gastado.
+  const porCliente = {};
+  lineas.forEach(r => {
+    const k = r.cli || 'Sin definir';
+    if (!porCliente[k]) porCliente[k] = { cli: k, vn: 0, n: 0 };
+    porCliente[k].vn += r.vn;
+    porCliente[k].n += 1;
+  });
+  const clientesRows = Object.values(porCliente).sort((a, b) => b.vn - a.vn);
+  let htmlClientes = '<div class="table-wrap" style="margin-top:14px"><table class="table-default"><thead class="top"><tr><th>Cliente</th><th class="num"># Compras</th><th class="num">Venta Neta acumulada</th></tr></thead><tbody>';
+  clientesRows.forEach(c => {
+    htmlClientes += `<tr><td><b>${c.cli}</b></td><td class="num">${c.n}</td><td class="num">${fmtMoney(c.vn)}</td></tr>`;
+  });
+  htmlClientes += '</tbody></table></div>';
+
+  document.getElementById('poridDetalle').innerHTML =
+    `<div class="card-meta" style="padding:0 0 10px">Historial completo (todos los años) — no se ve afectado por el filtro de Año</div>${html}`
+    + `<div class="card-header" style="padding:14px 0 8px"><div class="card-title" style="font-size:14px">Clientes que han comprado este ID</div></div>${htmlClientes}`;
+
+  document.getElementById('cardPorIdDetalle').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 // =========================================================================
