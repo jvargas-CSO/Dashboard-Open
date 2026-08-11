@@ -725,15 +725,26 @@ const Engine = {
       return true;
     });
   },
-  // Forecast filtrado igual que datos (vendedor, cliente, mes, año)
+  // Forecast filtrado igual que datos (vendedor, cliente, holding, mes, año) — el Forecast
+  // no trae emp/est/loc/cat/tp/cc, así que esos filtros del panel superior no le aplican.
   applyForecastFilters(filters, opts={}) {
     return this.forecast.filter(f => {
       if (!opts.ignoreYear && filters.anio && f.anio != filters.anio) return false;
       if (filters.mes && f.mes != filters.mes) return false;
       if (filters.eje && f.eje !== filters.eje) return false;
       if (filters.cli && f.cli !== filters.cli) return false;
+      if (filters.hol && f.hol !== filters.hol) return false;
       return true;
     });
+  },
+  // Igual que applyForecastFilters pero ya sumado en un arreglo de 12 meses — para las
+  // tablas/KPIs que necesitan el total mensual del Forecast respetando los filtros activos.
+  forecastMonthlyFilteredArr(filters, anio) {
+    const arr = Array(12).fill(0);
+    this.applyForecastFilters({ ...filters, anio }, { ignoreYear: false }).forEach(f => {
+      if (f.mes >= 1 && f.mes <= 12) arr[f.mes - 1] += f.fcNeto;
+    });
+    return arr;
   },
 
   // Devuelve los registros "vendibles" según el filtro Status OPEN aplicado.
@@ -802,13 +813,6 @@ const Engine = {
   forecastMonthlyByEje(eje, anio=2026) {
     const arr = Array(12).fill(0);
     this.forecast.filter(f => f.anio===anio && f.eje===eje).forEach(f => {
-      if (f.mes>=1 && f.mes<=12) arr[f.mes-1] += f.fcNeto;
-    });
-    return arr;
-  },
-  forecastMonthlyTotal(anio=2026) {
-    const arr = Array(12).fill(0);
-    this.forecast.filter(f => f.anio===anio).forEach(f => {
       if (f.mes>=1 && f.mes<=12) arr[f.mes-1] += f.fcNeto;
     });
     return arr;

@@ -695,13 +695,11 @@ function fmtTooltipDiff(real, forecast, ventaPrev) {
 // =========================================================================
 // INSIGHTS AUTOMÁTICOS (Resumen) — lectura tipo dirección general/comercial
 // =========================================================================
-function buildResumenInsights({ fact, factPrev, t, tP, yActual, yPrev, showFC, fcBrutoTotal, comTotal, comTotalPrev }) {
+function buildResumenInsights({ fact, factPrev, t, tP, yActual, yPrev, showFC, fcBrutoTotal, fcBrutoMonthly, comTotal, comTotalPrev }) {
   const insights = [];
 
   // 1. Proyección de cierre de año (real de meses con datos + forecast del resto)
   if (showFC && fcBrutoTotal > 0) {
-    const roiPct = Engine.roiPctParaForecastBruto(yActual);
-    const fcBrutoMonthly = Engine.forecastMonthlyTotal(yActual).map(v => roiPct < 1 ? v / (1 - roiPct) : v);
     const realVBMonthly = Engine.monthly(fact, 'vb');
     const mesesConDatos = new Set(fact.filter(r => r.vb > 0).map(r => r.mes));
     const cierre = realVBMonthly.reduce((sum, v, i) => sum + (mesesConDatos.has(i + 1) ? v : fcBrutoMonthly[i]), 0);
@@ -799,7 +797,11 @@ function renderResumen() {
 
   // Forecast: solo si está cargado y es 2026
   const showFC = forecastLoaded && yActual === 2026;
-  const fcNetoMonthly = showFC ? Engine.forecastMonthlyTotal(yActual) : Array(12).fill(0);
+  // Engine.forecastMonthlyTotal() sumaba TODA la empresa sin importar los filtros del panel
+  // superior — bug real: si filtrabas por Ejecutivo/Cliente/Holding/Mes, la venta real sí se
+  // filtraba pero el Forecast seguía siendo el de toda la empresa, dando un Alcance % sin
+  // sentido. Engine.forecastMonthlyFilteredArr() respeta esos mismos filtros.
+  const fcNetoMonthly = showFC ? Engine.forecastMonthlyFilteredArr(filters, yActual) : Array(12).fill(0);
   const fcNetoTotal = fcNetoMonthly.reduce((a,b)=>a+b,0);
   const roiPct = Engine.roiPctParaForecastBruto(yActual);
   const fcBrutoMonthly = fcNetoMonthly.map(v => roiPct < 1 ? v / (1 - roiPct) : v);
@@ -874,7 +876,7 @@ function renderResumen() {
 
   // === Insights automáticos (perspectiva dirección) ===
   renderResumenInsights(buildResumenInsights({
-    fact, factPrev, t, tP, yActual, yPrev, showFC, fcBrutoTotal, comTotal, comTotalPrev,
+    fact, factPrev, t, tP, yActual, yPrev, showFC, fcBrutoTotal, fcBrutoMonthly, comTotal, comTotalPrev,
   }));
 
   // === Tablas mensuales por Empresa (Entretenimiento / Servicios / Grupo Open), estilo finanzas ===
@@ -885,7 +887,7 @@ function renderResumen() {
   // proporción de ventas reales del año.
   function forecastNetoMensual(emp) {
     if (!showFC) return null;
-    const totFC = Engine.forecastMonthlyTotal(yActual);
+    const totFC = Engine.forecastMonthlyFilteredArr(filters, yActual);
     if (emp === 'Grupo Open') return totFC;
     const totVN = fact.filter(r=>r.anio===yActual).reduce((a,r)=>a+r.vn,0);
     const empVN = fact.filter(r=>r.anio===yActual && r.emp===emp).reduce((a,r)=>a+r.vn,0);
@@ -1873,13 +1875,14 @@ function projEstimateCierre(anio, valKey) {
   const mesesConDatos = new Set(data.filter(r => r.vb > 0).map(r => r.mes));
   if (!forecastLoaded) return real;
   let fcMonthly;
+  const fcNetoFiltrado = Engine.forecastMonthlyFilteredArr(filters, anio);
   if (valKey === 'vb') {
     const roiPct = Engine.roiPctParaForecastBruto(anio);
-    fcMonthly = Engine.forecastMonthlyTotal(anio).map(v => roiPct < 1 ? v / (1 - roiPct) : v);
+    fcMonthly = fcNetoFiltrado.map(v => roiPct < 1 ? v / (1 - roiPct) : v);
   } else if (valKey === 'ut') {
-    fcMonthly = Engine.forecastMonthlyTotal(anio).map(v => v * MARGEN_OBJETIVO);
+    fcMonthly = fcNetoFiltrado.map(v => v * MARGEN_OBJETIVO);
   } else {
-    fcMonthly = Engine.forecastMonthlyTotal(anio);
+    fcMonthly = fcNetoFiltrado;
   }
   return real.map((v, i) => mesesConDatos.has(i + 1) ? v : fcMonthly[i]);
 }
@@ -2063,7 +2066,7 @@ function renderProyeccion() {
 
   const fcAnual = (valKey) => {
     if (!forecastLoaded) return 0;
-    const fcNeto = Engine.forecastMonthlyTotal(2026).reduce((a, b) => a + b, 0);
+    const fcNeto = Engine.forecastMonthlyFilteredArr(filters, 2026).reduce((a, b) => a + b, 0);
     if (valKey === 'vn') return fcNeto;
     if (valKey === 'ut') return fcNeto * MARGEN_OBJETIVO;
     const roiPct = Engine.roiPctParaForecastBruto(2026);
