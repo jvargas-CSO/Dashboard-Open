@@ -1418,7 +1418,14 @@ tbody tr:hover { background: var(--bg-card-hover); }
   </section>
 
   <section class="section" id="sec-campanas">
-    <div class="alert info">📅 Un renglón por <b>CM</b> (venta), agrupando todos sus sitios/líneas. Duración en meses de 30 días. Medios = # de Id de Sitio distintos. Proveedores = # de Proveedor Comercial distintos.</div>
+    <div class="alert info">📅 Un renglón por <b>CM</b> (venta), agrupando todos sus sitios/líneas. Duración en meses de 30 días. Medios = # de Id de Sitio distintos. Proveedores = # de Proveedor Comercial distintos. <b>Coordinador, Peso y Cliente AAA</b> se leen de <b>Excelencia Operativa</b> (para cambiarlos, edita esa hoja y presiona "Actualizar desde Drive").</div>
+    <div class="card full" id="cardCampanasCarga" style="display:none;margin-bottom:14px">
+      <div class="card-header">
+        <div class="card-title">Carga por coordinador</div>
+        <div class="card-meta">Actual = suma de Peso de las campañas no terminadas · Capacidad según Excelencia Operativa · verde &lt;80%, amarillo 80-100%, rojo &gt;100%</div>
+      </div>
+      <div id="campanasCarga"></div>
+    </div>
     <div class="card full">
       <div class="card-header">
         <div class="card-title">Campañas</div>
@@ -1438,6 +1445,7 @@ tbody tr:hover { background: var(--bg-card-hover); }
           <input type="text" class="tbl-search" placeholder="Buscar campaña..." data-target="#tblCampanas table">
         </div>
       </div>
+      <div id="campanasOpsInfo"></div>
       <div id="tblCampanas"></div>
     </div>
   </section>

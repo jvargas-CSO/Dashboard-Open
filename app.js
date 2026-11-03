@@ -23,17 +23,17 @@ const DRIVE_SHEETS = {
   forecast: '1GNm0czUzY-WF5S8BtV-jqvxjNZ6KNbpZnI1O-nlvsb0',
   contactos: '1lU01rzAgZN3EG2NBrcI7Itx-wzro65lk',
 };
-// "Hoja de control" — a diferencia de las demás, esta se LEE y ESCRIBE vía la Sheets API
-// (no solo se lee vía Drive export) para guardar AAA/Peso/Coordinador de Campañas de forma
-// compartida entre todos los que usan el dashboard, en vez de localStorage (por navegador).
-const CONTROL_SHEET_ID = '1q1wBDJTQwblHc21i69SDlmY7VBvaGfE1LqiISDkgVHA';
-const CONTROL_SHEET_TAB = 'Hoja de control';
+// Excelencia Operativa — fuente de verdad de quién atiende cada campaña (Coordinador, Peso,
+// Cliente AAA) y de la capacidad por coordinador. Solo se lee la pestaña "Hoja de Control",
+// vía la Sheets API (valores sin formato), no se descarga el libro completo.
+const OPERACIONES_SHEET_ID = '1iSeCOXNJnnrPskt7a8r58MedIJlBADNaI9nA9jCPcyg';
+const OPERACIONES_SHEET_TAB = 'Hoja de Control';
 // Client ID de OAuth (Google Cloud Console > APIs & Services > Credentials > OAuth client ID).
 const GOOGLE_CLIENT_ID = '929626244128-ft82mdkvt7rftvg9ajg5kqiocams1a72.apps.googleusercontent.com';
-// spreadsheets (lectura+escritura) se agregó para poder guardar Campañas → Hoja de control.
-// Cualquiera que ya tuviera una sesión abierta con el scope viejo verá un nuevo cuadro de
-// consentimiento de Google la próxima vez que inicie sesión.
-const GOOGLE_SCOPE = 'https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/spreadsheets';
+// Solo lectura: la Sheets API acepta drive.readonly para leer. Ya nada del dashboard escribe
+// a Google Sheets (Campañas lee de Excelencia Operativa), así que se quitó el permiso de
+// escritura (spreadsheets) que se había agregado para la antigua "Hoja de control".
+const GOOGLE_SCOPE = 'https://www.googleapis.com/auth/drive.readonly';
 
 let googleAccessToken = null;
 let tokenClient = null;
@@ -59,18 +59,12 @@ function requestGoogleToken({ silent = false } = {}) {
 }
 
 // Pide una URL a la API de Drive/Sheets con reintento automático de token si expiró (401).
-// method/body: para escrituras (PUT/POST) contra la Sheets API; por defecto GET.
-async function driveApiRequest(url, { retried = false, method = 'GET', body = null } = {}) {
-  const opts = { method, headers: { Authorization: `Bearer ${googleAccessToken}` } };
-  if (body != null) {
-    opts.headers['Content-Type'] = 'application/json';
-    opts.body = JSON.stringify(body);
-  }
-  const res = await fetch(url, opts);
+async function driveApiRequest(url, { retried = false } = {}) {
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${googleAccessToken}` } });
   if (res.status === 401 && !retried) {
     try { await requestGoogleToken({ silent: true }); }
     catch (_) { const e = new Error('Tu sesión de Google expiró.'); e.code = 'AUTH_REQUIRED'; throw e; }
-    return driveApiRequest(url, { retried: true, method, body });
+    return driveApiRequest(url, { retried: true });
   }
   if (res.status === 401) { const e = new Error('Tu sesión de Google expiró.'); e.code = 'AUTH_REQUIRED'; throw e; }
   if (res.status === 403) { const e = new Error('Tu cuenta de Google no tiene acceso a este Sheet. Pide que te compartan el archivo.'); e.code = 'NO_ACCESS'; throw e; }
@@ -97,36 +91,16 @@ async function fetchWorkbookFromDrive(sheetId) {
 }
 
 // =========================================================================
-// SHEETS API — lectura/escritura de "Hoja de control" (AAA/Peso/Coordinador
-// de Campañas). A diferencia de fetchWorkbookFromDrive (solo lectura vía
-// Drive export), esto usa la Sheets API v4 directamente para poder escribir.
+// SHEETS API — lectura de la pestaña "Hoja de Control" de Excelencia Operativa.
+// UNFORMATTED_VALUE + SERIAL_NUMBER: números como número y fechas como serial de Excel,
+// sin depender del idioma de la hoja (coma decimal, d/mm/aaaa).
 // =========================================================================
-async function fetchControlSheetRows() {
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${CONTROL_SHEET_ID}/values/${encodeURIComponent(CONTROL_SHEET_TAB)}`;
+async function fetchOperacionesValues() {
+  const range = encodeURIComponent(`'${OPERACIONES_SHEET_TAB}'`);
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${OPERACIONES_SHEET_ID}/values/${range}?valueRenderOption=UNFORMATTED_VALUE&dateTimeRenderOption=SERIAL_NUMBER`;
   const res = await driveApiRequest(url);
   const json = await res.json();
   return json.values || [];
-}
-
-// Actualiza el renglón de un CM si ya existe, o lo agrega al final si es la primera vez
-// que se edita esa campaña. controlRowByCM guarda en qué renglón (1-indexado) vive cada
-// CM, para no tener que buscarlo cada vez.
-async function saveControlRow(cm, rowValues) {
-  const existingRow = controlRowByCM[cm];
-  if (existingRow) {
-    const range = `${CONTROL_SHEET_TAB}!A${existingRow}:M${existingRow}`;
-    const url = `https://sheets.googleapis.com/v4/spreadsheets/${CONTROL_SHEET_ID}/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`;
-    await driveApiRequest(url, { method: 'PUT', body: { values: [rowValues] } });
-  } else {
-    const range = `${CONTROL_SHEET_TAB}!A:M`;
-    const url = `https://sheets.googleapis.com/v4/spreadsheets/${CONTROL_SHEET_ID}/values/${encodeURIComponent(range)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
-    const res = await driveApiRequest(url, { method: 'POST', body: { values: [rowValues] } });
-    const json = await res.json();
-    // "Hoja de control!A15:M15" -> 15. Se guarda para que la próxima edición de este
-    // mismo CM actualice el renglón en vez de volver a agregarlo al final.
-    const match = /![A-Z]+(\d+):/.exec(json.updates && json.updates.updatedRange || '');
-    if (match) controlRowByCM[cm] = parseInt(match[1]);
-  }
 }
 
 const filters = { anio:'', mes:'', emp:'', eje:'', est:'', loc:'', cat:'', hol:'', cli:'', tp:'', cc:'', statusOpen: ['Suma Forecast'] };
@@ -139,10 +113,7 @@ let dataLoaded = false;
 let forecastLoaded = false;
 let contactosLoaded = false;
 let rpCurrentList = [];
-let controlLoaded = false;
-let controlMap = {}; // cm -> { aaa, peso, coordinador }
-let controlRowByCM = {}; // cm -> número de renglón en Hoja de control (1-indexado)
-let campanasCurrentList = []; // último `campanas` calculado en renderCampanas(), para poder armar el renglón completo al guardar
+let operacionesLoaded = false;
 let iaAutoInsightsGenerated = false;
 
 // =========================================================================
@@ -233,14 +204,17 @@ async function loadFromDriveAndBoot({ silent = false } = {}) {
       contactosLoaded = false;
     }
 
-    if (!silent) setDzStatus('Cargando Hoja de control (Campañas)…');
+    // Excelencia Operativa (quién atiende cada campaña). Va después de Data Comercial porque
+    // Engine.loadOperaciones() cruza sus filas contra las campañas ya cargadas. No bloquea el
+    // arranque si falla (igual que Forecast/Contactos): Campañas solo muestra "—".
+    if (!silent) setDzStatus('Cargando Excelencia Operativa (Google Drive)…');
     try {
-      const controlValues = await fetchControlSheetRows();
-      parseControlSheetRows(controlValues);
-      controlLoaded = true;
-    } catch (ctrlErr) {
-      console.error('No se pudo cargar la Hoja de control:', ctrlErr);
-      controlLoaded = false;
+      const opsValues = await fetchOperacionesValues();
+      Engine.loadOperaciones(processOperacionesValues(opsValues), { name: 'Excelencia Operativa' });
+      operacionesLoaded = true;
+    } catch (opsErr) {
+      console.error('No se pudo cargar Excelencia Operativa:', opsErr);
+      operacionesLoaded = false;
     }
 
     if (silent) {
@@ -355,7 +329,6 @@ function populateFilters() {
   fillSel('f-eje', ejesActivos.map(v=>({v,t:v})));
   // Mismo listado de ejecutivos que el filtro global de arriba, para el filtro local de Campañas.
   fillSel('campanaFiltroEje', ejesActivos.map(v=>({v,t:v})));
-  fillSel('campanaFiltroCoord', ['Sin asignar', ...COORDINADOR_OPTIONS].map(v=>({v,t:v})));
   fillSel('f-est', uniq('est').map(v=>({v,t:v})));
   fillSel('f-loc', uniq('loc').map(v=>({v,t:v})));
   // Categorías ordenadas según CATEGORIAS_MIX
@@ -494,15 +467,6 @@ function attachListeners() {
   });
   document.getElementById('rpModalOverlay').addEventListener('click', e => {
     if (e.target.id === 'rpModalOverlay') closeRPProfile();
-  });
-  document.addEventListener('change', e => {
-    if (e.target.classList.contains('campana-peso-input')) {
-      saveCampanaControlField(e.target.dataset.cm, 'peso', e.target.value);
-    } else if (e.target.classList.contains('campana-coord-select')) {
-      saveCampanaControlField(e.target.dataset.cm, 'coordinador', e.target.value);
-    } else if (e.target.classList.contains('campana-aaa-select')) {
-      saveCampanaControlField(e.target.dataset.cm, 'aaa', e.target.value);
-    }
   });
   document.getElementById('campanaFiltroEje').addEventListener('change', e => {
     filters.eje = e.target.value;
@@ -2289,62 +2253,55 @@ function computeCampanaStatus(fechaInicio, fechaFin) {
   if ((df - hoy) <= unaSemanaMs) return { label: 'Fin Próximo', cls: 'warning' };
   return { label: 'En curso', cls: 'success' };
 }
-// AAA, Peso y Coordinador son campos editables manualmente (no vienen de Data Comercial).
-// Se guardan en "Hoja de control" (Google Sheets, ver CONTROL_SHEET_ID) — compartido entre
-// todos los que usan el dashboard, a diferencia de localStorage (por navegador).
-const COORDINADOR_OPTIONS = ['Jasso', 'Chio', 'Yeudiel', 'Aye', 'Pablo'];
-const AAA_OPTIONS = ['Si', 'No'];
+// Coordinador / Peso / Cliente AAA ya NO se capturan en el dashboard: vienen de Excelencia
+// Operativa (pestaña "Hoja de Control") y Engine.loadOperaciones() los cruza con cada
+// campaña (CM). Aquí solo se muestran; para cambiar quién atiende una campaña se edita
+// esa hoja y se presiona "Actualizar desde Drive".
+const COORD_SIN_CRUCE = 'Sin cruce';
+const COORD_SIN_ASIGNAR = 'Sin asignar';
 
-// Igual que processContactosWorkbook: busca la fila real de encabezados (por si la hoja
-// trae un banner arriba) en vez de asumir que es el renglón 1. Llena controlMap (valores
-// actuales de AAA/Peso/Coordinador por CM) y controlRowByCM (en qué renglón está cada CM,
-// para poder actualizarlo en vez de duplicarlo la próxima vez que se edite).
-function parseControlSheetRows(values) {
-  const normHeader = s => String(s || '').trim().toLowerCase();
-  controlMap = {};
-  controlRowByCM = {};
-  if (!values || !values.length) return;
-  let headerRowIdx = -1;
-  for (let i = 0; i < Math.min(10, values.length); i++) {
-    if ((values[i] || []).some(cell => normHeader(cell) === 'cm')) { headerRowIdx = i; break; }
+function fmtPesoOps(p) { return p == null ? '—' : p.toLocaleString('es-MX'); }
+
+// Opciones del filtro de Coordinador según lo que trae la hoja (tabla de capacidad primero,
+// luego cualquier otro nombre que aparezca en los renglones). Conserva la selección actual.
+function refreshCampanaCoordFilter() {
+  const sel = document.getElementById('campanaFiltroCoord');
+  if (!sel) return;
+  const previo = sel.value;
+  const ops = Engine.operaciones;
+  const nombres = new Map(); // normalizado -> como se escribe en la hoja
+  if (ops) {
+    ops.capacidad.filter(c => !c.esTotal).forEach(c => nombres.set(normTexto(c.nombre), c.nombre));
+    ops.rows.forEach(r => { const k = normTexto(r.coordinador); if (k && !nombres.has(k)) nombres.set(k, r.coordinador); });
   }
-  if (headerRowIdx === -1) return;
-  const colIdx = {};
-  (values[headerRowIdx] || []).forEach((h, i) => { colIdx[normHeader(h)] = i; });
-  const get = (row, name) => { const idx = colIdx[normHeader(name)]; return idx == null ? null : row[idx]; };
-  for (let i = headerRowIdx + 1; i < values.length; i++) {
-    const row = values[i];
-    if (!row) continue;
-    const cm = String(get(row, 'CM') || '').trim();
-    if (!cm) continue;
-    controlMap[cm] = {
-      // "AAA" o "Cliente AAA" (por si se pega una hoja externa que ya use ese nombre).
-      aaa: String(get(row, 'AAA') || get(row, 'Cliente AAA') || '').trim(),
-      peso: get(row, 'Peso') != null ? String(get(row, 'Peso')).trim() : '',
-      coordinador: String(get(row, 'Coordinador') || '').trim(),
-    };
-    controlRowByCM[cm] = i + 1; // Sheets es 1-indexado
-  }
+  sel.innerHTML = `<option value="">Todos</option><option value="${COORD_SIN_ASIGNAR}">${COORD_SIN_ASIGNAR}</option><option value="${COORD_SIN_CRUCE}">${COORD_SIN_CRUCE}</option>`
+    + [...nombres.values()].map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
+  sel.value = [...sel.options].some(o => o.value === previo) ? previo : '';
 }
 
-// Arma el renglón completo (13 columnas, mismo orden que Hoja de control) con el estado
-// actual de una campaña + sus 3 campos editables, y lo guarda.
-async function saveCampanaControlField(cm, field, value) {
-  const c = campanasCurrentList.find(x => x.cm === cm);
-  if (!c) return;
-  if (!controlMap[cm]) controlMap[cm] = { aaa: '', peso: '', coordinador: '' };
-  controlMap[cm][field] = value;
-  const status = computeCampanaStatus(c.fechaInicio, c.fechaFin);
-  const rowValues = [
-    c.cmp, c.cm, c.cli || '', controlMap[cm].aaa,
-    c.fechaInicio ? c.fechaInicio.toLocaleDateString('es-MX', {timeZone:'UTC'}) : '',
-    c.fechaFin ? c.fechaFin.toLocaleDateString('es-MX', {timeZone:'UTC'}) : '',
-    fmtDuracionMeses(c.fechaInicio, c.fechaFin),
-    c.medios.size, c.provs.size, status.label,
-    controlMap[cm].peso, controlMap[cm].coordinador, c.eje || '',
-  ];
-  try { await saveControlRow(cm, rowValues); }
-  catch (e) { console.error('No se pudo guardar en Hoja de control:', e); alert('No se pudo guardar en la Hoja de control: ' + e.message); }
+// Tabla "Carga por coordinador": Actual (suma de Peso de campañas no terminadas) vs Capacidad.
+// Mismos umbrales que la hoja: <80% verde, 80-100% amarillo, >100% rojo.
+function renderCampanasCarga() {
+  const card = document.getElementById('cardCampanasCarga');
+  const carga = Engine.cargaCoordinadores || [];
+  if (!operacionesLoaded || !carga.length) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  let html = '<div class="table-wrap"><table class="table-default"><thead class="top"><tr>'
+    + '<th>Coordinador</th><th class="num">Actual</th><th class="num">Capacidad</th><th class="num">% uso</th><th style="width:34%"></th>'
+    + '</tr></thead><tbody>';
+  carga.forEach(c => {
+    const pct = c.capacidad ? c.actual / c.capacidad * 100 : null;
+    const color = pct == null ? 'var(--text-muted)' : pct < 80 ? 'var(--success)' : pct <= 100 ? 'var(--warning)' : 'var(--danger)';
+    const bar = pct == null ? '' : `<div style="background:var(--border);border-radius:6px;height:8px"><div style="width:${Math.min(100, pct)}%;height:8px;border-radius:6px;background:${color}"></div></div>`;
+    const b = c.esTotal ? ['<b>', '</b>'] : ['', ''];
+    html += `<tr${c.esTotal ? ' style="border-top:2px solid var(--border)"' : ''}><td>${b[0]}${escapeHtml(c.nombre)}${b[1]}</td>`
+      + `<td class="num">${b[0]}${fmtPesoOps(c.actual)}${b[1]}</td>`
+      + `<td class="num">${c.capacidad == null ? '—' : fmtPesoOps(c.capacidad)}</td>`
+      + `<td class="num" style="color:${color};font-weight:700">${pct == null ? '—' : fmtPct(pct)}</td>`
+      + `<td>${bar}</td></tr>`;
+  });
+  html += '</tbody></table></div>';
+  document.getElementById('campanasCarga').innerHTML = html;
 }
 
 function renderCampanas() {
@@ -2362,6 +2319,30 @@ function renderCampanas() {
     if (r.fechaFin) { const d = new Date(r.fechaFin); if (!isNaN(d) && (!g.fechaFin || d > g.fechaFin)) g.fechaFin = d; }
   });
   let campanas = Object.values(porCM).sort((a,b) => (b.fechaInicio||0) - (a.fechaInicio||0));
+  const opsMatch = c => Engine.opsMatchByCM[c.cm]; // undefined = sin cruce con Excelencia Operativa
+
+  refreshCampanaCoordFilter();
+  renderCampanasCarga();
+
+  // Aviso de fuente + campañas de esta vista sin cruce + filas de la hoja sin campaña.
+  const infoEl = document.getElementById('campanasOpsInfo');
+  if (!operacionesLoaded) {
+    infoEl.innerHTML = '<div style="padding:10px 14px;color:var(--danger);font-size:13px">⚠️ No se pudo cargar Excelencia Operativa — Coordinador, Peso y AAA no están disponibles. Revisa que tu cuenta de Google tenga acceso a ese archivo.</div>';
+  } else {
+    const sinCruceVista = campanas.filter(c => !opsMatch(c)).length;
+    const filasSin = Engine.opsFilasSinCruce;
+    const fmtF = d => d ? d.toLocaleDateString('es-MX', { timeZone: 'UTC' }) : '—';
+    let det = '';
+    if (filasSin.length) {
+      det = `<details style="margin-top:6px"><summary style="cursor:pointer">Ver ${filasSin.length} fila${filasSin.length === 1 ? '' : 's'} de Excelencia Operativa sin campaña equivalente</summary>`
+        + '<div class="table-wrap" style="max-height:280px;margin-top:6px"><table class="table-default"><thead class="top"><tr><th>Campaña (hoja)</th><th>Ejecutivo</th><th>Fecha Inicio</th><th>Fecha Fin</th><th>Coordinador</th><th>Status</th></tr></thead><tbody>'
+        + filasSin.map(o => `<tr><td><b>${escapeHtml(o.nombre)}</b></td><td>${escapeHtml(o.ejecutivo) || '—'}</td><td>${fmtF(o.fechaInicio)}</td><td>${fmtF(o.fechaFin)}</td><td>${escapeHtml(o.coordinador) || '—'}</td><td>${escapeHtml(o.status) || '—'}</td></tr>`).join('')
+        + '</tbody></table></div></details>';
+    }
+    infoEl.innerHTML = `<div style="padding:10px 14px;font-size:13px;color:var(--text-muted)">Fuente: <b>Excelencia Operativa</b> (se cruza por nombre, ejecutivo, fechas y # de medios/proveedores). `
+      + `<b style="color:${sinCruceVista ? 'var(--warning)' : 'var(--success)'}">${sinCruceVista}</b> campaña${sinCruceVista === 1 ? '' : 's'} de esta vista sin cruce · `
+      + `<b style="color:${filasSin.length ? 'var(--warning)' : 'var(--success)'}">${filasSin.length}</b> fila${filasSin.length === 1 ? '' : 's'} de la hoja sin campaña equivalente.${det}</div>`;
+  }
 
   // Filtros locales de la tabla (Cliente AAA y Coordinador no existen en el filtro global
   // de arriba, así que se aplican aquí, sobre lo que ya dejó Engine.applyFilters). El
@@ -2371,33 +2352,39 @@ function renderCampanas() {
   if (ejeSel) ejeSel.value = filters.eje || '';
   const filtroAAA = document.getElementById('campanaFiltroAAA')?.value || '';
   const filtroCoord = document.getElementById('campanaFiltroCoord')?.value || '';
-  if (filtroAAA) campanas = campanas.filter(c => (controlMap[c.cm]?.aaa || '') === filtroAAA);
+  if (filtroAAA) campanas = campanas.filter(c => (opsMatch(c)?.aaa || '') === filtroAAA);
   if (filtroCoord) {
-    campanas = campanas.filter(c => filtroCoord === 'Sin asignar'
-      ? !(controlMap[c.cm]?.coordinador)
-      : (controlMap[c.cm]?.coordinador || '') === filtroCoord);
+    campanas = campanas.filter(c => {
+      const m = opsMatch(c);
+      if (filtroCoord === COORD_SIN_CRUCE) return !m;
+      if (filtroCoord === COORD_SIN_ASIGNAR) return !!m && !m.coordinador;
+      return !!m && normTexto(m.coordinador) === normTexto(filtroCoord);
+    });
   }
-
-  campanasCurrentList = campanas;
 
   let html = '<div class="table-wrap"><table class="table-default"><thead class="top"><tr>'
     + '<th>Campaña</th><th>CM</th><th>Cliente</th><th>AAA</th><th>Fecha Inicio</th><th>Fecha Fin</th><th>Duración</th><th class="num">Medios</th><th class="num">Proveedores</th><th>Status</th><th class="num">Peso</th><th>Coordinador</th><th>Ejecutivo</th>'
     + '</tr></thead><tbody>';
   campanas.forEach(c => {
     const status = computeCampanaStatus(c.fechaInicio, c.fechaFin);
-    const ctrl = controlMap[c.cm] || { aaa: '', peso: '', coordinador: '' };
+    const m = opsMatch(c);
+    const aaaTxt = m && m.aaa ? (m.aaa === 'Si' ? 'Sí' : 'No') : '—';
+    const coordCell = !operacionesLoaded ? '<span style="color:var(--text-muted)">—</span>'
+      : !m ? '<span class="pill warning" title="No se encontró esta campaña en Excelencia Operativa: el nombre, el ejecutivo, las fechas o el # de medios/proveedores no calzan. Revisa la lista de filas sin cruce arriba.">Sin cruce</span>'
+      : m.coordinador ? `<b>${escapeHtml(m.coordinador)}</b>`
+      : `<span style="color:var(--text-muted)">${COORD_SIN_ASIGNAR}</span>`;
     html += `<tr><td><b>${c.cmp}</b></td>`
       + `<td><a href="#" class="cm-link" data-cm="${c.cm}" style="color:var(--primary);text-decoration:underline;cursor:pointer">${c.cm}</a></td>`
       + `<td>${c.cli || '—'}</td>`
-      + `<td><select class="campana-aaa-select" data-cm="${c.cm}"><option value="">—</option>${AAA_OPTIONS.map(o => `<option value="${o}" ${ctrl.aaa === o ? 'selected' : ''}>${o}</option>`).join('')}</select></td>`
+      + `<td>${aaaTxt}</td>`
       + `<td>${c.fechaInicio ? c.fechaInicio.toLocaleDateString('es-MX', {timeZone:'UTC'}) : '—'}</td>`
       + `<td>${c.fechaFin ? c.fechaFin.toLocaleDateString('es-MX', {timeZone:'UTC'}) : '—'}</td>`
       + `<td>${fmtDuracionMeses(c.fechaInicio, c.fechaFin)}</td>`
       + `<td class="num">${c.medios.size}</td>`
       + `<td class="num">${c.provs.size}</td>`
       + `<td><span class="pill ${status.cls}">${status.label}</span></td>`
-      + `<td class="num"><input type="number" step="0.01" class="campana-peso-input" data-cm="${c.cm}" value="${ctrl.peso}" placeholder="—" style="width:75px;text-align:right"></td>`
-      + `<td><select class="campana-coord-select" data-cm="${c.cm}"><option value="">Sin asignar</option>${COORDINADOR_OPTIONS.map(o => `<option value="${o}" ${ctrl.coordinador === o ? 'selected' : ''}>${o}</option>`).join('')}</select></td>`
+      + `<td class="num">${m ? fmtPesoOps(m.peso) : '—'}</td>`
+      + `<td>${coordCell}</td>`
       + `<td>${c.eje || '—'}</td></tr>`;
   });
   html += '</tbody></table></div>';

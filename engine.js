@@ -597,16 +597,99 @@ function processContactosWorkbook(workbook) {
 }
 
 // =========================================================================
+// Excelencia Operativa — hoja "Hoja de Control": quién atiende cada campaña
+// (Coordinador / Peso / Cliente AAA) y la capacidad por coordinador. Se lee con
+// la Sheets API en valores SIN formato: números llegan como número y las fechas
+// como serial de Excel, así que no dependen del idioma de la hoja ("4,5", "1/01/2026").
+// =========================================================================
+// Texto comparable: sin acentos, minúsculas, sin puntuación ("O'REILLY" == "O’reilly").
+function normTexto(s) {
+  return String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+function fechaOperaciones(v) {
+  let d = null;
+  if (typeof v === 'number') d = new Date(Date.UTC(1899, 11, 30) + Math.round(v) * 86400000);
+  else if (v instanceof Date) d = v;
+  else if (typeof v === 'string') {
+    const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(v.trim());
+    if (m) d = new Date(Date.UTC(+m[3], +m[2] - 1, +m[1]));
+  }
+  // Años absurdos (un "14/10/20026" tecleado mal en la hoja) se descartan en vez de
+  // romper el cruce o la duración.
+  return d && !isNaN(d) && d.getUTCFullYear() >= 2000 && d.getUTCFullYear() <= 2100 ? d : null;
+}
+function numOperaciones(v) {
+  if (typeof v === 'number') return v;
+  if (v == null || v === '') return null;
+  const n = parseFloat(String(v).replace(',', '.'));
+  return isNaN(n) ? null : n;
+}
+function processOperacionesValues(values) {
+  const out = { rows: [], capacidad: [] };
+  if (!values || !values.length) return out;
+  // La fila de encabezados no está en el renglón 1 (arriba vive la tabla de capacidad):
+  // se busca la que trae "Campaña" y "Coordinador".
+  let headerIdx = -1;
+  for (let i = 0; i < Math.min(30, values.length); i++) {
+    const hs = (values[i] || []).map(normTexto);
+    if (hs.includes('campana') && hs.includes('coordinador')) { headerIdx = i; break; }
+  }
+  if (headerIdx === -1) return out;
+  const colIdx = {};
+  (values[headerIdx] || []).forEach((h, i) => { colIdx[normTexto(h)] = i; });
+  const get = (row, name) => { const idx = colIdx[normTexto(name)]; return idx == null ? null : row[idx]; };
+
+  // Tabla de capacidad (arriba del encabezado): primer texto de la fila = coordinador,
+  // último número de la fila = capacidad. "Total Sistema" se marca aparte.
+  for (let i = 0; i < headerIdx; i++) {
+    const row = values[i] || [];
+    const nombre = row.find(c => typeof c === 'string' && c.trim() !== '');
+    const nums = row.filter(c => typeof c === 'number');
+    if (!nombre || !nums.length) continue;
+    out.capacidad.push({ nombre: nombre.trim(), capacidad: nums[nums.length - 1], esTotal: normTexto(nombre).startsWith('total') });
+  }
+
+  for (let i = headerIdx + 1; i < values.length; i++) {
+    const row = values[i];
+    if (!row) continue;
+    const nombre = String(get(row, 'Campaña') ?? '').trim();
+    if (!nombre) continue;
+    const aaa = normTexto(get(row, 'Cliente AAA'));
+    const status = String(get(row, 'Status') ?? '').trim();
+    out.rows.push({
+      nombre,
+      fechaInicio: fechaOperaciones(get(row, 'Fecha Inicio')),
+      fechaFin: fechaOperaciones(get(row, 'Fecha Fin')),
+      medios: numOperaciones(get(row, 'Medios')),
+      proveedores: numOperaciones(get(row, 'Proveedores')),
+      aaa: aaa === 'si' ? 'Si' : aaa === 'no' ? 'No' : '',
+      peso: numOperaciones(get(row, 'Peso')),
+      status,
+      terminada: normTexto(status).includes('terminada'),
+      coordinador: String(get(row, 'Coordinador') ?? '').trim(),
+      ejecutivo: String(get(row, 'Ejecutivo') ?? '').trim(),
+    });
+  }
+  return out;
+}
+
+// =========================================================================
 // Estado global
 // =========================================================================
 const Engine = {
   records: [],
   forecast: [],
   contactos: [],
+  operaciones: null,        // { rows, capacidad } — hoja "Hoja de Control" de Excelencia Operativa
+  opsMatchByCM: {},         // cm -> { coordinador, peso, aaa, status, nombre }
+  opsFilasSinCruce: [],     // filas de Excelencia Operativa que no calzaron con ninguna campaña
+  cargaCoordinadores: [],   // [{ nombre, actual, capacidad, esTotal }]
   yearsAvailable: [],
   metaData: null,
   metaForecast: null,
   metaContactos: null,
+  metaOperaciones: null,
   // % ROI promedio por año (para calcular forecast Bruto)
   roiPromAnioAnterior: null,
 
@@ -618,6 +701,122 @@ const Engine = {
     this._computeRoiPromedio();
     this._computeActiveSellers();
     this._computeStatusValues();
+    if (this.operaciones) this._computeOperacionesMatch(); // las campañas cambiaron: recalcular el cruce
+  },
+  loadOperaciones(data, fileMeta) {
+    this.operaciones = data;
+    this.metaOperaciones = fileMeta || null;
+    this._computeOperacionesMatch();
+    this._computeCargaCoordinadores();
+  },
+  // Cruza cada fila de Excelencia Operativa con su campaña (CM) de Data Comercial. La hoja
+  // operativa NO trae CM, solo el nombre, y los nombres se repiten ("ADAS"/"Adas", la misma
+  // marca en 2025 y 2026), así que: el nombre normalizado agrupa candidatos y dentro del grupo
+  // se puntúa con ejecutivo, fechas y # de medios/proveedores. Un par se acepta solo si es
+  // el mejor para AMBOS lados y gana con margen estricto — ante un empate o duda no se cruza
+  // y la fila queda marcada para revisión, en vez de asignar un coordinador equivocado.
+  _computeOperacionesMatch() {
+    this.opsMatchByCM = {};
+    this.opsFilasSinCruce = [];
+    const ops = this.operaciones;
+    if (!ops) return;
+    const DAY = 86400000;
+    // Catálogo completo (todos los años, sin filtros del panel): si el cruce dependiera de
+    // los filtros activos, cambiar el Año podría reasignar una fila a otra campaña.
+    const porCM = {};
+    this.records.forEach(r => {
+      if (!r.cm) return;
+      const g = porCM[r.cm] || (porCM[r.cm] = { cm: r.cm, cmp: r.cmp || r.cm, eje: r.eje, fechaInicio: null, fechaFin: null, medios: new Set(), provs: new Set() });
+      if (r.idSitio) g.medios.add(r.idSitio);
+      if (r.prov) g.provs.add(r.prov);
+      if (r.fechaInicio) { const d = new Date(r.fechaInicio); if (!isNaN(d) && (!g.fechaInicio || d < g.fechaInicio)) g.fechaInicio = d; }
+      if (r.fechaFin) { const d = new Date(r.fechaFin); if (!isNaN(d) && (!g.fechaFin || d > g.fechaFin)) g.fechaFin = d; }
+    });
+    const campsPorNombre = new Map();
+    Object.values(porCM).forEach(c => {
+      const k = normTexto(c.cmp);
+      if (!k) return;
+      if (!campsPorNombre.has(k)) campsPorNombre.set(k, []);
+      campsPorNombre.get(k).push(c);
+    });
+    const opsPorNombre = new Map();
+    ops.rows.forEach(o => {
+      const k = normTexto(o.nombre);
+      if (!opsPorNombre.has(k)) opsPorNombre.set(k, []);
+      opsPorNombre.get(k).push(o);
+    });
+
+    const costoCruce = (o, c) => {
+      const dIni = (o.fechaInicio && c.fechaInicio) ? Math.abs(o.fechaInicio - c.fechaInicio) / DAY : null;
+      if (dIni != null && dIni > 120) return Infinity; // misma marca pero otra corrida (ej. 2025 vs 2026)
+      const dFin = (o.fechaFin && c.fechaFin) ? Math.abs(o.fechaFin - c.fechaFin) / DAY : null;
+      let costo = (dIni ?? 200) + 0.5 * (dFin ?? 200);
+      if (normTexto(o.ejecutivo) !== normTexto(c.eje)) costo += 300;
+      if (o.medios != null && o.medios !== c.medios.size) costo += 60;
+      if (o.proveedores != null && o.proveedores !== c.provs.size) costo += 30;
+      return costo;
+    };
+    // Mejor candidato y costo del segundo mejor (Infinity si no hay segundo).
+    const mejor = arr => {
+      let idx = -1, costo = Infinity, segundo = Infinity;
+      arr.forEach((c, i) => {
+        if (c < costo) { segundo = costo; costo = c; idx = i; }
+        else if (c < segundo) segundo = c;
+      });
+      return { idx, costo, segundo };
+    };
+
+    opsPorNombre.forEach((grupo, nombre) => {
+      const camps = campsPorNombre.get(nombre) || [];
+      const costos = grupo.map(o => camps.map(c => costoCruce(o, c)));
+      const mejorPorOps = costos.map(mejor);
+      const mejorPorCamp = camps.map((_, ci) => mejor(costos.map(fila => fila[ci])));
+      grupo.forEach((o, gi) => {
+        const mo = mejorPorOps[gi];
+        if (mo.idx >= 0 && isFinite(mo.costo) && mo.costo < mo.segundo) {
+          const mc = mejorPorCamp[mo.idx];
+          if (mc.idx === gi && mc.costo < mc.segundo) {
+            const c = camps[mo.idx];
+            this.opsMatchByCM[c.cm] = { coordinador: o.coordinador, peso: o.peso, aaa: o.aaa, status: o.status, nombre: o.nombre };
+            return;
+          }
+        }
+        this.opsFilasSinCruce.push(o);
+      });
+    });
+  },
+  // Carga por coordinador: Actual = suma de Peso de las campañas NO terminadas (misma regla
+  // que la fórmula de la hoja), Capacidad = la que trae la tabla de la hoja. Se calcula aquí
+  // y no se lee el "Actual" de la hoja porque la fórmula de Pablo no excluye las terminadas
+  // (le falta el "⚫ " al criterio) y muestra de más.
+  _computeCargaCoordinadores() {
+    this.cargaCoordinadores = [];
+    const ops = this.operaciones;
+    if (!ops) return;
+    const actual = {}, nombres = {};
+    let total = 0;
+    ops.rows.forEach(r => {
+      if (r.terminada || r.peso == null) return;
+      total += r.peso;
+      const k = normTexto(r.coordinador);
+      actual[k] = (actual[k] || 0) + r.peso;
+      if (k && !nombres[k]) nombres[k] = r.coordinador;
+    });
+    const out = [];
+    let capSuma = 0;
+    ops.capacidad.filter(c => !c.esTotal).forEach(c => {
+      const k = normTexto(c.nombre);
+      out.push({ nombre: c.nombre, actual: actual[k] || 0, capacidad: c.capacidad });
+      capSuma += c.capacidad;
+      delete actual[k];
+    });
+    Object.keys(actual).forEach(k => { // coordinadores en la lista que no están en la tabla de capacidad
+      if (k === '') { if (actual[k] > 0) out.push({ nombre: 'Sin coordinador', actual: actual[k], capacidad: null }); }
+      else out.push({ nombre: nombres[k], actual: actual[k], capacidad: null });
+    });
+    const filaTotal = ops.capacidad.find(c => c.esTotal);
+    out.push({ nombre: 'Total Sistema', actual: total, capacidad: filaTotal ? filaTotal.capacidad : capSuma, esTotal: true });
+    this.cargaCoordinadores = out;
   },
   loadForecast(forecast, fileMeta) {
     this.forecast = forecast;
@@ -868,4 +1067,5 @@ window.Engine = Engine;
 window.processDataWorkbook = processDataWorkbook;
 window.processForecastWorkbook = processForecastWorkbook;
 window.processContactosWorkbook = processContactosWorkbook;
+window.processOperacionesValues = processOperacionesValues;
 window.CATEGORIAS_MIX = CATEGORIAS_MIX;
