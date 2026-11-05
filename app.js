@@ -2320,6 +2320,10 @@ function renderCampanas() {
   });
   let campanas = Object.values(porCM).sort((a,b) => (b.fechaInicio||0) - (a.fechaInicio||0));
   const opsMatch = c => Engine.opsMatchByCM[c.cm]; // undefined = sin cruce con Excelencia Operativa
+  // Texto del tooltip: de qué fila de Excelencia Operativa salió el dato (el nombre puede variar).
+  const tipCruce = m => `Excelencia Operativa: ${m.nombre}`
+    + (m.aprox ? ' (el nombre no es idéntico; se cruzó por fechas, ejecutivo y medios)' : '')
+    + (m.filas > 1 ? ` — ${m.filas} filas, el peso es la suma` : '');
 
   refreshCampanaCoordFilter();
   renderCampanasCarga();
@@ -2371,8 +2375,8 @@ function renderCampanas() {
     const aaaTxt = m && m.aaa ? (m.aaa === 'Si' ? 'Sí' : 'No') : '—';
     const coordCell = !operacionesLoaded ? '<span style="color:var(--text-muted)">—</span>'
       : !m ? '<span class="pill warning" title="No se encontró esta campaña en Excelencia Operativa: el nombre, el ejecutivo, las fechas o el # de medios/proveedores no calzan. Revisa la lista de filas sin cruce arriba.">Sin cruce</span>'
-      : m.coordinador ? `<b>${escapeHtml(m.coordinador)}</b>`
-      : `<span style="color:var(--text-muted)">${COORD_SIN_ASIGNAR}</span>`;
+      : m.coordinador ? `<b title="${escapeHtml(tipCruce(m))}">${escapeHtml(m.coordinador)}${m.aprox ? ' <span style="color:var(--text-muted);font-weight:400">≈</span>' : ''}</b>`
+      : `<span style="color:var(--text-muted)" title="${escapeHtml(tipCruce(m))}">${COORD_SIN_ASIGNAR}</span>`;
     html += `<tr><td><b>${c.cmp}</b></td>`
       + `<td><a href="#" class="cm-link" data-cm="${c.cm}" style="color:var(--primary);text-decoration:underline;cursor:pointer">${c.cm}</a></td>`
       + `<td>${c.cli || '—'}</td>`

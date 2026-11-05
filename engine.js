@@ -607,6 +607,18 @@ function normTexto(s) {
   return String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g, '')
     .toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
+// Distancia de edición (Levenshtein) con corte rápido; sirve para detectar erratas en nombres.
+function distanciaEdicion(a, b) {
+  if (a === b) return 0;
+  if (Math.abs(a.length - b.length) > 2) return 99;
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    prev = cur;
+  }
+  return prev[b.length];
+}
 function fechaOperaciones(v) {
   let d = null;
   if (typeof v === 'number') d = new Date(Date.UTC(1899, 11, 30) + Math.round(v) * 86400000);
@@ -709,81 +721,107 @@ const Engine = {
     this._computeOperacionesMatch();
     this._computeCargaCoordinadores();
   },
-  // Cruza cada fila de Excelencia Operativa con su campaña (CM) de Data Comercial. La hoja
-  // operativa NO trae CM, solo el nombre, y los nombres se repiten ("ADAS"/"Adas", la misma
-  // marca en 2025 y 2026), así que: el nombre normalizado agrupa candidatos y dentro del grupo
-  // se puntúa con ejecutivo, fechas y # de medios/proveedores. Un par se acepta solo si es
-  // el mejor para AMBOS lados y gana con margen estricto — ante un empate o duda no se cruza
-  // y la fila queda marcada para revisión, en vez de asignar un coordinador equivocado.
+  // Cruza cada campaña (CM) de Data Comercial con su fila de Excelencia Operativa. La hoja
+  // operativa NO trae CM, solo el nombre, y con datos reales el nombre casi nunca es idéntico
+  // ("Gorett" vs "Gorett Noviembre", "Duelo" vs "Duelo - autobuses"), se repite ("ADAS"/"Adas",
+  // la misma marca en 2025 y 2026) y una fila de la hoja puede cubrir varios CMs (Jamiroquai =
+  // 8 + 1 sitios en dos CMs). Por eso el cruce va del lado de la CAMPAÑA: para cada CM se elige,
+  // entre las filas con nombre compatible, la de menor costo. El nombre (igual / contenido / con
+  // errata) solo es compuerta; la evidencia son fechas, ejecutivo y # de medios/proveedores.
+  // Rangos de fechas que no se traslapan se rechazan (otra corrida de la misma marca). Si dos
+  // filas empatan para la misma campaña (roles "Coordinador"/"Administrador") se muestran ambas.
+  // Lo que no llega al límite de costo queda sin cruce y se marca para revisión.
   _computeOperacionesMatch() {
     this.opsMatchByCM = {};
     this.opsFilasSinCruce = [];
     const ops = this.operaciones;
     if (!ops) return;
     const DAY = 86400000;
-    // Catálogo completo (todos los años, sin filtros del panel): si el cruce dependiera de
-    // los filtros activos, cambiar el Año podría reasignar una fila a otra campaña.
+    const LIMITE = 150; // costo máximo para aceptar un cruce
+    const INICIO_HOJA = Date.UTC(2026, 0, 1);
+    // Fechas fuera de 2020-2100 son typos en la fuente (ej. un inicio "2006-09-18"): se ignoran.
+    const fechaOk = v => { const d = v ? new Date(v) : null; return d && !isNaN(d) && d.getUTCFullYear() >= 2020 && d.getUTCFullYear() <= 2100 ? d : null; };
+
+    // Catálogo completo (todos los años, sin filtros del panel): si el cruce dependiera de los
+    // filtros activos, cambiar el Año podría reasignar filas a otra campaña.
     const porCM = {};
     this.records.forEach(r => {
       if (!r.cm) return;
       const g = porCM[r.cm] || (porCM[r.cm] = { cm: r.cm, cmp: r.cmp || r.cm, eje: r.eje, fechaInicio: null, fechaFin: null, medios: new Set(), provs: new Set() });
       if (r.idSitio) g.medios.add(r.idSitio);
       if (r.prov) g.provs.add(r.prov);
-      if (r.fechaInicio) { const d = new Date(r.fechaInicio); if (!isNaN(d) && (!g.fechaInicio || d < g.fechaInicio)) g.fechaInicio = d; }
-      if (r.fechaFin) { const d = new Date(r.fechaFin); if (!isNaN(d) && (!g.fechaFin || d > g.fechaFin)) g.fechaFin = d; }
+      const di = fechaOk(r.fechaInicio), df = fechaOk(r.fechaFin);
+      if (di && (!g.fechaInicio || di < g.fechaInicio)) g.fechaInicio = di;
+      if (df && (!g.fechaFin || df > g.fechaFin)) g.fechaFin = df;
     });
-    const campsPorNombre = new Map();
-    Object.values(porCM).forEach(c => {
-      const k = normTexto(c.cmp);
-      if (!k) return;
-      if (!campsPorNombre.has(k)) campsPorNombre.set(k, []);
-      campsPorNombre.get(k).push(c);
-    });
-    const opsPorNombre = new Map();
-    ops.rows.forEach(o => {
-      const k = normTexto(o.nombre);
-      if (!opsPorNombre.has(k)) opsPorNombre.set(k, []);
-      opsPorNombre.get(k).push(o);
+    const camps = Object.values(porCM).map(c => ({ ...c, norm: normTexto(c.cmp), ejeNorm: normTexto(c.eje) }));
+    camps.forEach(c => { c.tok = c.norm.split(' ').filter(Boolean); });
+    const filas = ops.rows.map(o => {
+      const norm = normTexto(o.nombre);
+      return { o, norm, tok: norm.split(' ').filter(Boolean), ejeNorm: normTexto(o.ejecutivo) };
     });
 
-    const costoCruce = (o, c) => {
-      const dIni = (o.fechaInicio && c.fechaInicio) ? Math.abs(o.fechaInicio - c.fechaInicio) / DAY : null;
-      if (dIni != null && dIni > 120) return Infinity; // misma marca pero otra corrida (ej. 2025 vs 2026)
-      const dFin = (o.fechaFin && c.fechaFin) ? Math.abs(o.fechaFin - c.fechaFin) / DAY : null;
-      let costo = (dIni ?? 200) + 0.5 * (dFin ?? 200);
-      if (normTexto(o.ejecutivo) !== normTexto(c.eje)) costo += 300;
-      if (o.medios != null && o.medios !== c.medios.size) costo += 60;
-      if (o.proveedores != null && o.proveedores !== c.provs.size) costo += 30;
-      return costo;
+    // 0 = nombre igual, 1 = uno contiene al otro ("gorett" ⊂ "gorett noviembre"), 2 = parecido
+    // por una errata ("tiguan"/"taigun"), 99 = incompatible.
+    const nivelNombre = (f, c) => {
+      if (!f.norm || !c.norm) return 99;
+      if (f.norm === c.norm) return 0;
+      const [corto, largo] = f.tok.length <= c.tok.length ? [f.tok, c.tok] : [c.tok, f.tok];
+      if (corto.length && corto.every(t => largo.includes(t))) return 1;
+      if (Math.min(f.norm.length, c.norm.length) >= 8 && distanciaEdicion(f.norm, c.norm) <= 2) return 2;
+      return 99;
     };
-    // Mejor candidato y costo del segundo mejor (Infinity si no hay segundo).
-    const mejor = arr => {
-      let idx = -1, costo = Infinity, segundo = Infinity;
-      arr.forEach((c, i) => {
-        if (c < costo) { segundo = costo; costo = c; idx = i; }
-        else if (c < segundo) segundo = c;
-      });
-      return { idx, costo, segundo };
+    const pareja = (f, c) => {
+      const nivel = nivelNombre(f, c);
+      if (nivel === 99) return null;
+      const o = f.o, oFin = o.fechaFin, cFin = c.fechaFin;
+      // La hoja operativa es de 2026: lo que empezó antes (campañas que vienen del año pasado)
+      // se compara desde el 1-ene-2026 en ambos lados, para no penalizar esa diferencia.
+      const recorta = d => (d && +d < INICIO_HOJA ? new Date(INICIO_HOJA) : d);
+      const oIni = recorta(o.fechaInicio), cIni = recorta(c.fechaInicio);
+      const conRangos = oIni && oFin && cIni && cFin;
+      // OJO: las fechas se pasan a número (+) antes de sumar; Date + número concatena texto.
+      if (conRangos && (+cFin < +oIni - 7 * DAY || +cIni > +oFin + 7 * DAY)) return null; // no se traslapan
+      const dIni = oIni && cIni ? Math.abs(oIni - cIni) / DAY : null;
+      const dFin = oFin && cFin ? Math.abs(oFin - cFin) / DAY : null;
+      let fechas = (dIni ?? 200) + 0.5 * (dFin ?? 200);
+      // Fila "agregadora": la campaña de la hoja abarca varios CMs (ej. "Stellantis" todo el año
+      // y un CM de marzo a diciembre). El CM queda dentro del rango de la fila.
+      const agregadora = conRangos && +cIni >= +oIni - 7 * DAY && +cFin <= +oFin + 7 * DAY && fechas > 25;
+      if (agregadora) fechas = 25;
+      let costo = nivel * 15 + fechas;
+      if (f.ejeNorm !== c.ejeNorm) costo += 120;
+      if (agregadora) costo += 10; // los conteos de una fila agregadora suman varios CMs: no se comparan
+      else {
+        if (o.medios != null && o.medios !== c.medios.size) costo += 60;
+        if (o.proveedores != null && o.proveedores !== c.provs.size) costo += 30;
+      }
+      return { costo, nivel };
     };
 
-    opsPorNombre.forEach((grupo, nombre) => {
-      const camps = campsPorNombre.get(nombre) || [];
-      const costos = grupo.map(o => camps.map(c => costoCruce(o, c)));
-      const mejorPorOps = costos.map(mejor);
-      const mejorPorCamp = camps.map((_, ci) => mejor(costos.map(fila => fila[ci])));
-      grupo.forEach((o, gi) => {
-        const mo = mejorPorOps[gi];
-        if (mo.idx >= 0 && isFinite(mo.costo) && mo.costo < mo.segundo) {
-          const mc = mejorPorCamp[mo.idx];
-          if (mc.idx === gi && mc.costo < mc.segundo) {
-            const c = camps[mo.idx];
-            this.opsMatchByCM[c.cm] = { coordinador: o.coordinador, peso: o.peso, aaa: o.aaa, status: o.status, nombre: o.nombre };
-            return;
-          }
-        }
-        this.opsFilasSinCruce.push(o);
+    const usadas = new Set(); // filas de la hoja elegidas por al menos una campaña
+    camps.forEach(c => {
+      const cand = [];
+      filas.forEach((f, fi) => {
+        const p = pareja(f, c);
+        if (p && p.costo <= LIMITE) cand.push({ f, fi, ...p });
       });
+      if (!cand.length) return;
+      cand.sort((a, b) => a.costo - b.costo);
+      const elegidas = cand.filter(x => x.costo - cand[0].costo <= 5);
+      elegidas.forEach(x => usadas.add(x.fi));
+      const pesos = elegidas.map(x => x.f.o.peso).filter(p => p != null);
+      this.opsMatchByCM[c.cm] = {
+        coordinador: [...new Set(elegidas.map(x => x.f.o.coordinador).filter(Boolean))].join(' / '),
+        peso: pesos.length ? pesos.reduce((a, b) => a + b, 0) : null,
+        aaa: elegidas.map(x => x.f.o.aaa).find(Boolean) || '',
+        status: elegidas[0].f.o.status,
+        nombre: elegidas.map(x => x.f.o.nombre).join(' + '),
+        aprox: elegidas.some(x => x.nivel > 0), // el nombre en la hoja no es idéntico
+        filas: elegidas.length,
+      };
     });
+    filas.forEach((f, fi) => { if (!usadas.has(fi)) this.opsFilasSinCruce.push(f.o); });
   },
   // Carga por coordinador: Actual = suma de Peso de las campañas NO terminadas (misma regla
   // que la fórmula de la hoja), Capacidad = la que trae la tabla de la hoja. Se calcula aquí
