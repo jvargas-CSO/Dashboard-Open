@@ -687,12 +687,125 @@ function processOperacionesValues(values) {
 }
 
 // =========================================================================
+// Patrimonial — rentabilidad de los sitios propios. Se lee del archivo "Rentabilidad Sitios
+// Propios" (pestañas BDVentas y Costos Sitios Propios Data Armando) en valores SIN formato.
+// No se usan las hojas ya calculadas del archivo (Consulta Rentabilidad, etc.): traen cifras
+// que no cuadran entre sí, así que la utilidad se calcula aquí desde los datos crudos.
+// =========================================================================
+const PATRIMONIAL_CATS = ['rentaFija', 'rentaVariable', 'instalacion', 'licencias', 'seguro', 'proteccion', 'otros'];
+// Tipo de costo de la hoja -> categoría. Retiros van con Instalaciones; Intermediación y
+// Herramientas con Otros gastos. 'inversion' (Inversión Sitio Nuevo) se muestra aparte.
+function categoriaCostoPatrimonial(tipo) {
+  const t = normTexto(tipo);
+  if (t === 'renta fija') return 'rentaFija';
+  if (t === 'renta variable') return 'rentaVariable';
+  if (t === 'instalaciones' || t === 'retiros') return 'instalacion';
+  if (t === 'licencias') return 'licencias';
+  if (t === 'seguros' || t === 'seguro') return 'seguro';
+  if (t === 'proteccion') return 'proteccion';
+  if (t === 'inversion sitio nuevo') return 'inversion';
+  return 'otros';
+}
+// "Open-PV00-35" / "PV00-35" / " OPEN-PV00-35 " -> "OPEN-PV00-35". Lo que no es un ID de sitio
+// (rutas de autobús, "Permisionario", mantenimientos) se agrupa en SIN_ID_PATRIMONIAL.
+const SIN_ID_PATRIMONIAL = 'Sin ID de sitio';
+function idPatrimonial(v) {
+  let s = String(v == null ? '' : v).trim().toUpperCase().replace(/\s+/g, ' ');
+  if (/^PV\d/.test(s)) s = 'OPEN-' + s;
+  return /^OPEN-PV/.test(s) ? s : SIN_ID_PATRIMONIAL;
+}
+function numPatrimonial(v) {
+  if (typeof v === 'number') return isFinite(v) ? v : 0;
+  if (v == null || v === '') return 0;
+  let s = String(v).replace(/[^\d,.\-]/g, '');
+  if (!s) return 0;
+  if (s.indexOf(',') >= 0) s = s.replace(/\./g, '').replace(',', '.'); // 1.234,56 (es)
+  const n = parseFloat(s);
+  return isNaN(n) ? 0 : n;
+}
+function headerPatrimonial(values, mustHave) {
+  for (let i = 0; i < Math.min(10, (values || []).length); i++) {
+    const hs = (values[i] || []).map(normTexto);
+    if (mustHave.every(m => hs.includes(m))) {
+      const idx = {};
+      hs.forEach((h, j) => { if (h && idx[h] == null) idx[h] = j; }); // primera aparición (hay encabezados repetidos: Mes, Año)
+      return { row: i, idx };
+    }
+  }
+  return null;
+}
+function processPatrimonialVentas(values) {
+  const hd = headerPatrimonial(values, ['id de sitio', 'venta sin roi', 'tipo']);
+  if (!hd) return [];
+  const g = (r, name) => { const j = hd.idx[name]; return j == null ? null : r[j]; };
+  const out = [];
+  for (let i = hd.row + 1; i < values.length; i++) {
+    const r = values[i];
+    if (!r || !r.length) continue;
+    const id = idPatrimonial(g(r, 'id de sitio'));
+    const mes = numPatrimonial(g(r, 'mes')), anio = numPatrimonial(g(r, 'ano'));
+    if (!anio || !mes) continue;
+    out.push({
+      id, mes, anio,
+      propio: normTexto(g(r, 'tipo')) === 'propio',
+      status: String(g(r, 'status open') ?? '').trim(),
+      medio: String(g(r, 'medio') ?? '').trim(),
+      domicilio: String(g(r, 'domicilio') ?? '').trim(),
+      venta: numPatrimonial(g(r, 'venta sin roi')),
+      comVend: numPatrimonial(g(r, 'comision final vendedor')),
+      comAdv: numPatrimonial(g(r, 'comision final adv')),
+    });
+  }
+  return out;
+}
+function processPatrimonialCostos(values) {
+  const hd = headerPatrimonial(values, ['sitio', 'tipo de costo', 'costo unitario']);
+  if (!hd) return [];
+  const g = (r, name) => { const j = hd.idx[name]; return j == null ? null : r[j]; };
+  const out = [];
+  for (let i = hd.row + 1; i < values.length; i++) {
+    const r = values[i];
+    if (!r || !r.length) continue;
+    const monto = numPatrimonial(g(r, 'costo unitario'));
+    const ini = fechaOperaciones(g(r, 'fecha inicio'));
+    if (!monto || !ini) continue;
+    const fin = fechaOperaciones(g(r, 'fecha final'));
+    const periodo = normTexto(g(r, 'periodicidad'));
+    const tipo = String(g(r, 'tipo de costo') ?? '').trim();
+    // Anual / semestral / trimestral se reparten en partes iguales entre los meses de su rango
+    // (renta anual de $453,600 de ene a dic = $37,800 por mes). El resto cae en el mes de inicio.
+    let partes = [{ anio: ini.getUTCFullYear(), mes: ini.getUTCMonth() + 1, monto }];
+    if (['anual', 'semestral', 'trimestral'].includes(periodo) && fin && fin > ini) {
+      const meses = (fin.getUTCFullYear() - ini.getUTCFullYear()) * 12 + fin.getUTCMonth() - ini.getUTCMonth() + 1;
+      if (meses > 1 && meses <= 36) {
+        partes = [];
+        for (let k = 0; k < meses; k++) {
+          const t = ini.getUTCFullYear() * 12 + ini.getUTCMonth() + k;
+          partes.push({ anio: Math.floor(t / 12), mes: (t % 12) + 1, monto: monto / meses });
+        }
+      }
+    }
+    out.push({
+      id: idPatrimonial(g(r, 'sitio')),
+      cat: categoriaCostoPatrimonial(tipo), tipo, periodo,
+      medio: String(g(r, 'medios') ?? '').trim(),
+      odc: String(g(r, 'odc') ?? '').trim(),
+      descripcion: String(g(r, 'descripcion odc') ?? '').trim().replace(/\s+/g, ' '),
+      partes,
+    });
+  }
+  return out;
+}
+
+// =========================================================================
 // Estado global
 // =========================================================================
 const Engine = {
   records: [],
   forecast: [],
   contactos: [],
+  patrimonial: null,        // { ventas, costos } — archivo 'Rentabilidad Sitios Propios' (pestaña Patrimonial)
+  metaPatrimonial: null,
   operaciones: null,        // { rows, capacidad } — hoja "Hoja de Control" de Excelencia Operativa
   opsMatchByCM: {},         // cm -> { coordinador, peso, aaa, status, nombre }
   opsFilasSinCruce: [],     // filas de Excelencia Operativa que no calzaron con ninguna campaña
@@ -720,6 +833,74 @@ const Engine = {
     this.metaOperaciones = fileMeta || null;
     this._computeOperacionesMatch();
     this._computeCargaCoordinadores();
+  },
+  loadPatrimonial(data, fileMeta) {
+    this.patrimonial = data;           // { ventas, costos } ya procesados
+    this.metaPatrimonial = fileMeta || null;
+  },
+  // Rentabilidad por sitio propio. Ventas: líneas 'Propio' con Status OPEN dentro de
+  // statusOpen (como el resto del dashboard). Costos: todo el archivo de costos de sitios
+  // propios. Utilidad Bruta = Venta sin ROI - gastos de operación. Utilidad Neta = Bruta -
+  // comisión final de vendedor y ADV. 'Inversión Sitio Nuevo' va aparte, fuera de la utilidad.
+  patrimonialCompute({ anio, mes, statusOpen, medio } = {}) {
+    const P = this.patrimonial;
+    const out = { sites: [], totals: null, medios: [] };
+    if (!P) return out;
+    const okFecha = (a, m) => (!anio || String(a) === String(anio)) && (!mes || String(m) === String(mes));
+    const sOpen = Array.isArray(statusOpen) && statusOpen.length ? new Set(statusOpen) : null;
+    const sites = new Map();
+    const site = id => {
+      let s = sites.get(id);
+      if (!s) {
+        s = { id, medioVentas: {}, medioCostos: {}, domicilio: '', venta: 0, comVend: 0, comAdv: 0, inversion: 0, lineasVenta: 0 };
+        PATRIMONIAL_CATS.forEach(c => { s[c] = 0; });
+        sites.set(id, s);
+      }
+      return s;
+    };
+    P.ventas.forEach(v => {
+      if (!v.propio || !okFecha(v.anio, v.mes)) return;
+      if (sOpen && !sOpen.has(v.status)) return;
+      const s = site(v.id);
+      s.venta += v.venta; s.comVend += v.comVend; s.comAdv += v.comAdv; s.lineasVenta++;
+      if (v.medio && !v.medio.startsWith('#')) s.medioVentas[v.medio] = (s.medioVentas[v.medio] || 0) + 1;
+      if (v.domicilio && !s.domicilio) s.domicilio = v.domicilio;
+    });
+    P.costos.forEach(c => {
+      c.partes.forEach(p => {
+        if (!okFecha(p.anio, p.mes)) return;
+        const s = site(c.id);
+        s[c.cat] += p.monto;
+        if (c.medio && !c.medio.startsWith('#')) s.medioCostos[c.medio] = (s.medioCostos[c.medio] || 0) + 1;
+      });
+    });
+    const modo = obj => Object.entries(obj).sort((a, b) => b[1] - a[1])[0]?.[0] || '';
+    sites.forEach(s => {
+      const m = modo(s.medioVentas) || modo(s.medioCostos);
+      s.medio = !m || m.startsWith('#') ? 'Sin medio' : m; // '#N/A' viene de una fórmula rota en el archivo
+      s.gastos = PATRIMONIAL_CATS.reduce((a, c) => a + s[c], 0);
+      s.utilBruta = s.venta - s.gastos;
+      s.comisiones = s.comVend + s.comAdv;
+      s.utilNeta = s.utilBruta - s.comisiones;
+      s.margen = s.venta ? s.utilNeta / s.venta * 100 : null;
+      s.utilTrasInversion = s.utilNeta - s.inversion;
+    });
+    out.medios = [...new Set([...sites.values()].map(s => s.medio))].sort();
+    let list = [...sites.values()];
+    if (medio) list = list.filter(s => s.medio === medio);
+    list.sort((a, b) => b.utilNeta - a.utilNeta);
+    const t = { sitios: list.length, venta: 0, gastos: 0, comisiones: 0, inversion: 0, utilBruta: 0, utilNeta: 0, utilTrasInversion: 0, enPerdida: 0, sinVenta: 0 };
+    PATRIMONIAL_CATS.forEach(c => { t[c] = 0; });
+    list.forEach(s => {
+      t.venta += s.venta; t.gastos += s.gastos; t.comisiones += s.comisiones; t.inversion += s.inversion;
+      t.utilBruta += s.utilBruta; t.utilNeta += s.utilNeta; t.utilTrasInversion += s.utilTrasInversion;
+      PATRIMONIAL_CATS.forEach(c => { t[c] += s[c]; });
+      if (s.utilNeta < 0) t.enPerdida++;
+      if (!s.venta) t.sinVenta++;
+    });
+    t.margen = t.venta ? t.utilNeta / t.venta * 100 : null;
+    out.sites = list; out.totals = t;
+    return out;
   },
   // Cruza cada campaña (CM) de Data Comercial con su fila de Excelencia Operativa. La hoja
   // operativa NO trae CM, solo el nombre, y con datos reales el nombre casi nunca es idéntico
@@ -1106,4 +1287,6 @@ window.processDataWorkbook = processDataWorkbook;
 window.processForecastWorkbook = processForecastWorkbook;
 window.processContactosWorkbook = processContactosWorkbook;
 window.processOperacionesValues = processOperacionesValues;
+window.processPatrimonialVentas = processPatrimonialVentas;
+window.processPatrimonialCostos = processPatrimonialCostos;
 window.CATEGORIAS_MIX = CATEGORIAS_MIX;

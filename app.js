@@ -27,6 +27,10 @@ const DRIVE_SHEETS = {
 // Cliente AAA) y de la capacidad por coordinador. Solo se lee la pestaña "Hoja de Control",
 // vía la Sheets API (valores sin formato), no se descarga el libro completo.
 const OPERACIONES_SHEET_ID = '1iSeCOXNJnnrPskt7a8r58MedIJlBADNaI9nA9jCPcyg';
+// Pestaña Patrimonial: archivo "Rentabilidad Sitios Propios" (ventas y costos de sitios propios).
+const PATRIMONIAL_SHEET_ID = '1kp4Ijot5YjRHsAmptE-NjpQeJFPy67bEdDTR4Xa8ZQU';
+const PATRIMONIAL_TAB_VENTAS = 'BDVentas';
+const PATRIMONIAL_TAB_COSTOS = 'Costos Sitios Propios Data Armando';
 const OPERACIONES_SHEET_TAB = 'Hoja de Control';
 // Client ID de OAuth (Google Cloud Console > APIs & Services > Credentials > OAuth client ID).
 const GOOGLE_CLIENT_ID = '929626244128-ft82mdkvt7rftvg9ajg5kqiocams1a72.apps.googleusercontent.com';
@@ -103,6 +107,14 @@ async function fetchOperacionesValues() {
   return json.values || [];
 }
 
+async function fetchPatrimonialValues(tab) {
+  const range = encodeURIComponent(`'${tab}'`);
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${PATRIMONIAL_SHEET_ID}/values/${range}?valueRenderOption=UNFORMATTED_VALUE&dateTimeRenderOption=SERIAL_NUMBER`;
+  const res = await driveApiRequest(url);
+  const json = await res.json();
+  return json.values || [];
+}
+
 const filters = { anio:'', mes:'', emp:'', eje:'', est:'', loc:'', cat:'', hol:'', cli:'', tp:'', cc:'', statusOpen: ['Suma Forecast'] };
 let charts = {};
 let selectedVendedor = '';
@@ -114,6 +126,7 @@ let forecastLoaded = false;
 let contactosLoaded = false;
 let rpCurrentList = [];
 let operacionesLoaded = false;
+let patrimonialLoaded = false;
 let iaAutoInsightsGenerated = false;
 
 // =========================================================================
@@ -215,6 +228,18 @@ async function loadFromDriveAndBoot({ silent = false } = {}) {
     } catch (opsErr) {
       console.error('No se pudo cargar Excelencia Operativa:', opsErr);
       operacionesLoaded = false;
+    }
+
+    // Patrimonial (rentabilidad de sitios propios): ventas + costos del archivo "Rentabilidad
+    // Sitios Propios". Tampoco bloquea el arranque si falla.
+    if (!silent) setDzStatus('Cargando Patrimonial (Google Drive)…');
+    try {
+      const [ventasVals, costosVals] = await Promise.all([fetchPatrimonialValues(PATRIMONIAL_TAB_VENTAS), fetchPatrimonialValues(PATRIMONIAL_TAB_COSTOS)]);
+      Engine.loadPatrimonial({ ventas: processPatrimonialVentas(ventasVals), costos: processPatrimonialCostos(costosVals) }, { name: 'Rentabilidad Sitios Propios' });
+      patrimonialLoaded = true;
+    } catch (patErr) {
+      console.error('No se pudo cargar Patrimonial:', patErr);
+      patrimonialLoaded = false;
     }
 
     if (silent) {
@@ -475,6 +500,7 @@ function attachListeners() {
   });
   document.getElementById('campanaFiltroAAA').addEventListener('change', renderCampanas);
   document.getElementById('campanaFiltroCoord').addEventListener('change', renderCampanas);
+  document.getElementById('patrimonialFiltroMedio').addEventListener('change', renderPatrimonial);
   document.addEventListener('click', e => {
     const link = e.target.closest('.id-link');
     if (!link) return;
@@ -615,6 +641,7 @@ function render() {
     case 'proyeccion': renderProyeccion(); break;
     case 'controlesMaestros': renderControlesMaestros(); break;
     case 'campanas': renderCampanas(); break;
+    case 'patrimonial': renderPatrimonial(); break;
     case 'rp': renderRP(); break;
     case 'porid': renderPorID(); break;
   }
@@ -2393,6 +2420,68 @@ function renderCampanas() {
   });
   html += '</tbody></table></div>';
   document.getElementById('tblCampanas').innerHTML = html;
+}
+
+// =========================================================================
+// PATRIMONIAL — rentabilidad de los sitios propios (archivo "Rentabilidad Sitios Propios")
+// Respeta Año, Mes y Status Open del panel superior; el filtro de Medio es propio de la pestaña.
+// =========================================================================
+function renderPatrimonial() {
+  const kpis = document.getElementById('patrimonialKpis');
+  const tbl = document.getElementById('tblPatrimonial');
+  const info = document.getElementById('patrimonialInfo');
+  if (!patrimonialLoaded) {
+    kpis.innerHTML = '';
+    tbl.innerHTML = '<div style="padding:18px;color:var(--text-muted);text-align:center">No se pudo leer el archivo "Rentabilidad Sitios Propios". Verifica que tu cuenta de Google tenga acceso y presiona "Actualizar desde Drive".</div>';
+    info.textContent = '';
+    return;
+  }
+  const selMedio = document.getElementById('patrimonialFiltroMedio');
+  const todo = Engine.patrimonialCompute({ anio: filters.anio, mes: filters.mes, statusOpen: filters.statusOpen });
+  // Opciones del filtro de Medio: se reconstruyen conservando la selección si sigue existiendo.
+  const prev = selMedio.value;
+  selMedio.innerHTML = '<option value="">Todos</option>' + todo.medios.map(m => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join('');
+  selMedio.value = todo.medios.includes(prev) ? prev : '';
+  const data = selMedio.value ? Engine.patrimonialCompute({ anio: filters.anio, mes: filters.mes, statusOpen: filters.statusOpen, medio: selMedio.value }) : todo;
+  const t = data.totals;
+  const periodo = (filters.anio || 'todos los años') + (filters.mes ? ` · mes ${filters.mes}` : '');
+  info.textContent = `${t.sitios} sitios propios · ${periodo} · ventas: ${(filters.statusOpen || []).join(', ') || 'todos los status'}`;
+
+  const cls = v => v < 0 ? 'danger' : 'success';
+  const money = v => (v < 0 ? '-' : '') + fmtMoneyShort(Math.abs(v));
+  kpis.innerHTML = [
+    { label: 'Venta sin ROI', val: money(t.venta), sub: `${t.sitios} sitios · ${t.sinVenta} sin venta en el periodo`, cls: 'info' },
+    { label: 'Gastos de operación', val: money(t.gastos), sub: `Renta fija ${money(t.rentaFija)} · variable ${money(t.rentaVariable)}`, cls: 'warning' },
+    { label: 'Utilidad bruta', val: money(t.utilBruta), sub: t.venta ? fmtPct(t.utilBruta / t.venta * 100) + ' de la venta' : '—', cls: cls(t.utilBruta) },
+    { label: 'Comisiones', val: money(t.comisiones), sub: 'Vendedor + ADV (comisión final)', cls: '' },
+    { label: 'Utilidad neta', val: money(t.utilNeta), sub: t.margen == null ? 'Sin venta' : `Margen ${fmtPct(t.margen)}`, cls: cls(t.utilNeta) },
+    { label: 'Inversión sitio nuevo', val: money(t.inversion), sub: 'Aparte de la utilidad operativa', cls: 'purple' },
+    { label: 'Utilidad tras inversión', val: money(t.utilTrasInversion), sub: `${t.enPerdida} sitios con utilidad neta negativa`, cls: cls(t.utilTrasInversion) },
+  ].map(k => `<div class="kpi ${k.cls}"><div class="kpi-label">${k.label}</div><div class="kpi-value">${k.val}</div><div class="kpi-sub">${k.sub}</div></div>`).join('');
+
+  const neg = v => v < 0 ? ' style="color:var(--danger);font-weight:700"' : '';
+  const cell = v => `<td class="num">${v ? fmtMoney(v) : '—'}</td>`;
+  let html = '<div class="table-wrap"><table class="table-default"><thead class="top"><tr>'
+    + '<th>ID de sitio</th><th>Medio</th><th>Domicilio</th><th class="num">Venta sin ROI</th>'
+    + '<th class="num">Renta fija</th><th class="num">Renta variable</th><th class="num">Instalación</th><th class="num">Licencias</th><th class="num">Seguro</th><th class="num">Protección</th><th class="num">Otros</th>'
+    + '<th class="num">Gastos op.</th><th class="num">Utilidad bruta</th><th class="num">Comisiones</th><th class="num">Utilidad neta</th><th class="num">Margen</th><th class="num">Inversión</th><th class="num">Util. tras inversión</th>'
+    + '</tr></thead><tbody>';
+  data.sites.forEach(s => {
+    html += `<tr><td style="white-space:nowrap"><b>${escapeHtml(s.id)}</b></td><td style="white-space:nowrap">${escapeHtml(s.medio)}</td><td title="${escapeHtml(s.domicilio)}" style="white-space:nowrap">${escapeHtml(s.domicilio.length > 38 ? s.domicilio.slice(0, 36) + '…' : s.domicilio) || '—'}</td>`
+      + cell(s.venta) + cell(s.rentaFija) + cell(s.rentaVariable) + cell(s.instalacion) + cell(s.licencias) + cell(s.seguro) + cell(s.proteccion) + cell(s.otros)
+      + cell(s.gastos) + `<td class="num"${neg(s.utilBruta)}>${fmtMoney(s.utilBruta)}</td>` + cell(s.comisiones)
+      + `<td class="num"${neg(s.utilNeta)}>${fmtMoney(s.utilNeta)}</td>`
+      + `<td class="num"${neg(s.margen == null ? 0 : s.margen)}>${s.margen == null ? '—' : fmtPct(s.margen)}</td>`
+      + cell(s.inversion) + `<td class="num"${neg(s.utilTrasInversion)}>${fmtMoney(s.utilTrasInversion)}</td></tr>`;
+  });
+  html += `<tr style="border-top:2px solid var(--border);font-weight:700"><td>Total</td><td></td><td></td>`
+    + cell(t.venta) + cell(t.rentaFija) + cell(t.rentaVariable) + cell(t.instalacion) + cell(t.licencias) + cell(t.seguro) + cell(t.proteccion) + cell(t.otros)
+    + cell(t.gastos) + `<td class="num"${neg(t.utilBruta)}>${fmtMoney(t.utilBruta)}</td>` + cell(t.comisiones)
+    + `<td class="num"${neg(t.utilNeta)}>${fmtMoney(t.utilNeta)}</td>`
+    + `<td class="num">${t.margen == null ? '—' : fmtPct(t.margen)}</td>`
+    + cell(t.inversion) + `<td class="num"${neg(t.utilTrasInversion)}>${fmtMoney(t.utilTrasInversion)}</td></tr>`;
+  html += '</tbody></table></div>';
+  tbl.innerHTML = html;
 }
 
 function goToCM(cm) {
