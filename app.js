@@ -200,6 +200,11 @@ async function loadFromDriveAndBoot({ silent = false } = {}) {
     document.getElementById('loadingText').textContent = 'Actualizando desde Drive...';
   }
   try {
+    // Sin acceso al Sheet principal => vista por ejecutivo (solo sus archivos; ver ejecutivo.js)
+    if (typeof execDetectar === 'function' && await execDetectar()) {
+      await loadExecModeAndBoot({ silent });
+      return;
+    }
     const wbData = await fetchWorkbookFromDrive(DRIVE_SHEETS.dataComercial);
     const records = processDataWorkbook(wbData);
     if (!records.length) throw new Error('El Sheet de Data Comercial no tiene hojas con nombre de año (2025, 2026...) o está vacío.');
@@ -2098,6 +2103,14 @@ function buildHistoricalTable(monthlyByYear, years, colorHex) {
 // Etiquetas de año de la pestaña Proyección + histórico 2015-año en curso. La proyección en sí
 // (cierre, proyección del año siguiente vs forecast, supuestos y eventos) vive en proyeccion.js.
 function renderProyeccionLegacy() {
+  if (typeof execMode !== 'undefined' && execMode) {
+    // Vista por ejecutivo: sin histórico de la empresa; solo las etiquetas de año
+    const yC = projAnioCierre();
+    document.querySelectorAll('#sec-proyeccion .proj-yc').forEach(el => { el.textContent = yC; });
+    document.querySelectorAll('#sec-proyeccion .proj-yp').forEach(el => { el.textContent = yC - 1; });
+    document.querySelectorAll('#sec-proyeccion .proj-yn').forEach(el => { el.textContent = yC + 1; });
+    return;
+  }
   const vb = projBuildForecast('vb');
   const vn = projBuildForecast('vn');
   const yC = vb.anioCierre, yP = vb.anioPrev, yN = vb.anioProx;

@@ -57,7 +57,9 @@ function pxLoad() {
   } catch (e) { /* sin almacenamiento: se usan los valores por defecto */ }
   return d;
 }
-function pxSave() { try { localStorage.setItem(PX_STORE, JSON.stringify(PX)); } catch (e) { /* ignorar */ } }
+const pxIsExec = () => typeof execMode !== 'undefined' && execMode;
+let pxExecInit = false;
+function pxSave() { if (pxIsExec()) return; try { localStorage.setItem(PX_STORE, JSON.stringify(PX)); } catch (e) { /* ignorar */ } }
 let PX = pxLoad();
 let pxCache = {};
 let pxPanelSig = '';
@@ -100,7 +102,7 @@ function pxShares(yC, mk) {
   const arrs = [];
   for (let y = yC - 1; y >= yC - 4; y--) {
     let a = Engine.yearsAvailable.includes(y) ? pxMonthly(y, mk) : null;
-    if ((!a || pxSum(a) <= 0) && typeof HISTORICAL_SALES_BRUTA !== 'undefined' && HISTORICAL_SALES_BRUTA[y]) a = HISTORICAL_SALES_BRUTA[y];
+    if (!pxIsExec() && (!a || pxSum(a) <= 0) && typeof HISTORICAL_SALES_BRUTA !== 'undefined' && HISTORICAL_SALES_BRUTA[y]) a = HISTORICAL_SALES_BRUTA[y];
     if (a) { const t = pxSum(a); if (t > 0) arrs.push(a.map(v => v / t)); }
   }
   if (!arrs.length) return Array(12).fill(1 / 12);
@@ -127,7 +129,7 @@ function pxModel() {
   const B = fcArr ? YTD + real.slice(k).reduce((acc, v, i) => acc + Math.max(v, fcArr[k + i]), 0) : null;
   const cands = [B, C].filter(v => v != null && isFinite(v));
   let est = cands.length ? pxAvg(cands) : null;
-  if (est == null) { est = projBuildForecast(mk).totalCierre; M.cierreFallback = true; }
+  if (est == null) { est = pxIsExec() ? A : projBuildForecast(mk).totalCierre; M.cierreFallback = true; }
   const central = Math.max(A, est);
   const low = cands.length ? Math.max(A, Math.min(...cands)) : central;
   const high = cands.length ? Math.max(central, Math.max(...cands)) : central;
@@ -301,6 +303,12 @@ const MLAB = { vn: 'venta neta', vb: 'venta bruta', ut: 'utilidad' };
 
 function renderProyeccion() {
   renderProyeccionLegacy();              // etiquetas de año + histórico
+  if (pxIsExec() && !pxExecInit) {
+    // Vista por ejecutivo: todos los eventos apagados, sin metas de empresa
+    PX = pxDefaults();
+    ['elec', 'mundial', 'salidas', 'nuevosEj', 'macro', 'holdings', 'cuentas'].forEach(k => { PX[k].on = false; });
+    pxExecInit = true;
+  }
   if (!pxWired) pxWire();
   pxUpdate();
 }
@@ -427,7 +435,7 @@ function pxRenderProx(M) {
     ['Cobertura del Forecast', cov == null ? '—' : fmtPct(cov)],
     ['Cobertura de la proyección', M.P > 0 ? fmtPct(M.Y27 / M.P * 100) : '—'],
   ]));
-  cards.push(kpiBig('Efecto de eventos', 'sobre la proyección', pxSigned(M.evTot), M.evTot >= 0 ? '#1f9d6e' : '#dc4747', [
+  if (!pxIsExec()) cards.push(kpiBig('Efecto de eventos', 'sobre la proyección', pxSigned(M.evTot), M.evTot >= 0 ? '#1f9d6e' : '#dc4747', [
     ['Elecciones', pxSigned(M.elecTot), pxCls(M.elecTot)],
     ['Otros eventos', pxSigned(M.evTot - M.elecTot), pxCls(M.evTot - M.elecTot)],
   ]));
@@ -464,13 +472,14 @@ function pxRenderPuente(M) {
   const t = M.trans.map(x => `${x.a}→${x.b}: retención ${fmtPct(x.nrr * 100)}, nuevos +${fmtPct(x.nw * 100)}`).join(' · ') || 'sin historia suficiente de clientes';
   let h = '<div class="table-wrap px-puente"><table><thead class="top"><tr><th>Concepto</th><th class="num">Monto</th><th>Nota</th></tr></thead><tbody>';
   h += row(`Cierre ${yC} proyectado`, M.B0, 'mid', 'Punto de partida (ver sección 1)');
-  h += row('− No recurrente (Mundial)', -M.W, '', PX.mundial.on ? (M.mundialAplica ? (isFinite(pxNum(PX.mundial.override)) ? 'Monto capturado a mano' : `Exceso de jun–jul sobre la estacionalidad normal: ${fmtMoneyShort(M.Wauto)} (estimado)`) : 'No aplica en este año') : 'Apagado');
-  h += row('− Salidas de ejecutivos', -M.Lsum, '', PX.salidas.on ? (M.hasFcN ? `Cartera de quienes no tienen forecast ${yN}; se asume que el equipo retiene ${PX.salidas.retencion}%` : `Requiere Forecast ${yN}`) : 'Apagado');
+  if (!pxIsExec()) h += row('− No recurrente (Mundial)', -M.W, '', PX.mundial.on ? (M.mundialAplica ? (isFinite(pxNum(PX.mundial.override)) ? 'Monto capturado a mano' : `Exceso de jun–jul sobre la estacionalidad normal: ${fmtMoneyShort(M.Wauto)} (estimado)`) : 'No aplica en este año') : 'Apagado');
+  if (!pxIsExec()) h += row('− Salidas de ejecutivos', -M.Lsum, '', PX.salidas.on ? (M.hasFcN ? `Cartera de quienes no tienen forecast ${yN}; se asume que el equipo retiene ${PX.salidas.retencion}%` : `Requiere Forecast ${yN}`) : 'Apagado');
   h += row('Base repetible', M.B1, 'mid', 'Lo que se espera que repita');
   h += row('± Retención y crecimiento de cuentas actuales', M.B1 * (M.nrrL - 1), '', `Histórico: ${fmtPct(M.nrr * 100)} de retención neta; se asume que persiste ${PX.persistencia}% de ese crecimiento`);
   h += row('+ Clientes nuevos', M.B1 * M.nwL, '', `Histórico: clientes nuevos aportan ${fmtPct(M.nw * 100)} de la base; persiste ${PX.persistencia}%`);
   if (M.S0adj > M.S0 + 1) h += row('+ Piso por ya vendido', M.S0adj - M.S0, '', `Lo ya vendido para ${yN} (${fmtMoneyShort(M.Y27)}) supera la proyección estadística`);
   h += row('Proyección estadística (sin eventos)', M.S0adj, 'mid', `Crecimiento histórico observado: ${t}`);
+  if (!pxIsExec()) {
   h += row('🗳️ Elecciones', M.elecTot, '', PX.elec.on ? 'Partidos + desplazamiento de marcas + prima de tarifa' : 'Apagado');
   if (PX.elec.on) {
     h += row('Venta a partidos y gobiernos', M.ev.elec.partidos, '', '', true);
@@ -481,6 +490,7 @@ function pxRenderPuente(M) {
   h += row('🏢 Holdings', M.holdTot, '', PX.holdings.on ? (M.ev.holds.length ? M.ev.holds.map(x => `${pxEsc(x.h)} ${x.pct > 0 ? '+' : ''}${x.pct}%`).join(' · ') : 'Sin ajustes capturados') : 'Apagado');
   h += row('🎯 Cuentas clave', M.ctaTot, '', PX.cuentas.on ? (M.ev.cuentas.length ? 'Se simula perder: ' + M.ev.cuentas.map(x => pxEsc(x.c)).join(', ') : 'Ninguna seleccionada') : 'Apagado');
   h += row('🆕 Ejecutivos nuevos', M.ev.nuevos, '', PX.nuevosEj.on ? 'Venta capturada a mano' : 'Apagado');
+  }
   h += row(`Proyección ${yN}`, M.P, 'tot', M.F27 != null ? `Forecast del equipo: ${fmtMoneyShort(M.F27)} · diferencia ${pxSigned(M.P - M.F27)}` : '');
   h += '</tbody></table></div>';
   document.getElementById('pxPuente').innerHTML = h;
@@ -548,15 +558,20 @@ function pxRenderTablas(M) {
 
 function pxRenderMetodos(M) {
   const { yN, mk } = M;
-  const old = projBuildForecast(mk);
+  const old = pxIsExec() ? { totalProjBase: null, linReg: null } : projBuildForecast(mk);
   const row = (n, v, note) => `<tr><td>${n}</td>${v == null ? '<td class="num">—</td>' : pxTd(v)}<td class="num ${v != null && M.P ? pxCls(v - M.P) : ''}">${v != null && M.P ? pxPctTxt((v / M.P - 1) * 100) : '—'}</td><td style="color:var(--text-muted)">${note}</td></tr>`;
   let h = `<div class="table-wrap"><table><thead class="top"><tr><th>Método</th><th class="num">${yN}</th><th class="num">vs mi proyección</th><th>Qué es</th></tr></thead><tbody>`;
-  h += row('<b>Proyección con eventos</b>', M.P, 'Base repetible × retención/crecimiento moderado + clientes nuevos + eventos activos');
-  h += row('Proyección sin eventos', M.S0adj, 'Lo mismo, con todos los eventos apagados');
+  if (pxIsExec()) h += row('<b>Proyección</b>', M.P, 'Base repetible × retención/crecimiento moderado + clientes nuevos');
+  else {
+    h += row('<b>Proyección con eventos</b>', M.P, 'Base repetible × retención/crecimiento moderado + clientes nuevos + eventos activos');
+    h += row('Proyección sin eventos', M.S0adj, 'Lo mismo, con todos los eventos apagados');
+  }
   h += row('Forecast del equipo', M.F27, 'Lo que capturaron vendedores y dirección');
   h += row('Forecast calibrado', M.Fcal, M.att != null ? `Forecast × cumplimiento de ${M.yC} a la fecha (${fmtPct(M.attRaw * 100)}, acotado a 70%–140%)` : 'Necesita Forecast del año en curso');
-  h += row('Estacional + tendencia (histórico 10+ años)', old.totalProjBase, 'Crecimiento promedio año a año del histórico completo, repartido por estacionalidad (método anterior)');
-  h += row('Regresión lineal', old.linReg, 'Tendencia lineal simple sobre el histórico completo (contraste)');
+  if (!pxIsExec()) {
+    h += row('Estacional + tendencia (histórico 10+ años)', old.totalProjBase, 'Crecimiento promedio año a año del histórico completo, repartido por estacionalidad (método anterior)');
+    h += row('Regresión lineal', old.linReg, 'Tendencia lineal simple sobre el histórico completo (contraste)');
+  }
   h += '</tbody></table></div>';
   document.getElementById('pxMetodos27').innerHTML = h;
 }
@@ -565,6 +580,7 @@ function pxRenderMetodos(M) {
 // PANEL DE SUPUESTOS Y EVENTOS
 // =========================================================================
 function pxBuildPanel(M) {
+  if (pxIsExec()) return;
   const holds = [...M.byHol.entries()].sort((a, b) => b[1].adj - a[1].adj).slice(0, 8).map(e => e[0]);
   const clis = [...M.byCli.entries()].sort((a, b) => b[1].base - a[1].base).slice(0, 6).map(e => e[0]);
   const deps = [...M.depAll.entries()].sort((a, b) => b[1] - a[1]).map(e => e[0]);
