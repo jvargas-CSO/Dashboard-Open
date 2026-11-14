@@ -32,6 +32,10 @@ const PATRIMONIAL_SHEET_ID = '1kp4Ijot5YjRHsAmptE-NjpQeJFPy67bEdDTR4Xa8ZQU';
 const PATRIMONIAL_TAB_VENTAS = 'BDVentas';
 const PATRIMONIAL_TAB_COSTOS = 'Costos Sitios Propios Data Armando';
 const OPERACIONES_SHEET_TAB = 'Hoja de Control';
+// Concentrado de Ventas 2024 (pestaña "Data"): trae las ventas de 2024 con el mismo detalle que
+// las pestañas de Data Comercial. Se lee con la Sheets API y se agrega a los registros.
+const CONCENTRADO_2024_SHEET_ID = '1j1LQeU6NDxLn4y3My5vahTFUxVUtjAqazV6i6R2Fs1Y';
+const CONCENTRADO_2024_TAB = 'Data';
 // Client ID de OAuth (Google Cloud Console > APIs & Services > Credentials > OAuth client ID).
 const GOOGLE_CLIENT_ID = '929626244128-ft82mdkvt7rftvg9ajg5kqiocams1a72.apps.googleusercontent.com';
 // Solo lectura: la Sheets API acepta drive.readonly para leer. Ya nada del dashboard escribe
@@ -107,6 +111,14 @@ async function fetchOperacionesValues() {
   return json.values || [];
 }
 
+async function fetchConcentrado2024Values() {
+  const range = encodeURIComponent(`'${CONCENTRADO_2024_TAB}'`);
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${CONCENTRADO_2024_SHEET_ID}/values/${range}?valueRenderOption=UNFORMATTED_VALUE&dateTimeRenderOption=SERIAL_NUMBER`;
+  const res = await driveApiRequest(url);
+  const json = await res.json();
+  return json.values || [];
+}
+
 async function fetchPatrimonialValues(tab) {
   const range = encodeURIComponent(`'${tab}'`);
   const url = `https://sheets.googleapis.com/v4/spreadsheets/${PATRIMONIAL_SHEET_ID}/values/${range}?valueRenderOption=UNFORMATTED_VALUE&dateTimeRenderOption=SERIAL_NUMBER`;
@@ -126,6 +138,7 @@ let forecastLoaded = false;
 let contactosLoaded = false;
 let rpCurrentList = [];
 let operacionesLoaded = false;
+let concentrado2024Loaded = false;
 let patrimonialLoaded = false;
 let iaAutoInsightsGenerated = false;
 
@@ -190,6 +203,19 @@ async function loadFromDriveAndBoot({ silent = false } = {}) {
     const wbData = await fetchWorkbookFromDrive(DRIVE_SHEETS.dataComercial);
     const records = processDataWorkbook(wbData);
     if (!records.length) throw new Error('El Sheet de Data Comercial no tiene hojas con nombre de año (2025, 2026...) o está vacío.');
+    // 2024 vive en otro archivo (Concentrado de Ventas 2024). No bloquea el arranque si falla, y
+    // si algún día Data Comercial ya trae su propia pestaña 2024 no se vuelve a agregar (duplicaría).
+    if (!silent) setDzStatus('Cargando 2024 (Concentrado de Ventas)…');
+    concentrado2024Loaded = false;
+    if (!records.some(r => r.anio === 2024)) {
+      try {
+        const r24 = processConcentrado2024Values(await fetchConcentrado2024Values());
+        r24.forEach(r => records.push(r));
+        concentrado2024Loaded = r24.length > 0;
+      } catch (c24Err) {
+        console.error('No se pudo cargar el Concentrado de Ventas 2024:', c24Err);
+      }
+    }
     Engine.load(records, { name: 'Data Comercial (Drive)' });
     dataLoaded = true;
 
@@ -1917,7 +1943,9 @@ function buildFullHistoricalSeries(valKey) {
   const roiPct = computeAvgROIPct();
   const years = [];
   const monthly = {};
-  Object.keys(HISTORICAL_SALES_BRUTA).map(Number).sort((a, b) => a - b).forEach(y => {
+  // La tabla manual solo se usa para los años que NO están cargados como datos reales (2024 ya
+  // viene del Concentrado de Ventas; con datos reales también hay neto y utilidad, no estimados).
+  Object.keys(HISTORICAL_SALES_BRUTA).map(Number).filter(y => !Engine.yearsAvailable.includes(y)).sort((a, b) => a - b).forEach(y => {
     const bruta = HISTORICAL_SALES_BRUTA[y];
     let vals = bruta;
     if (valKey === 'vn') vals = bruta.map(v => v * (1 - roiPct));
@@ -1926,7 +1954,8 @@ function buildFullHistoricalSeries(valKey) {
     monthly[y] = vals;
   });
   const yC = projAnioCierre();
-  for (let y = 2025; y < yC; y++) {
+  for (let y = 2024; y < yC; y++) {
+    if (y < 2025 && !Engine.yearsAvailable.includes(y)) continue; // 2024 solo si hay datos reales
     years.push(y);
     monthly[y] = projGetYearMonthly(y, valKey);
   }
@@ -2020,6 +2049,7 @@ function projBuildForecast(valKey) {
 
   return {
     anioPrev: yP, anioCierre: yC, anioProx: yN,
+    anioManualFin: Math.max(...Object.keys(HISTORICAL_SALES_BRUTA).map(Number).filter(y => !Engine.yearsAvailable.includes(y))),
     years, monthly, monthlyReal, totals,
     realPrev: monthly[yP] || Array(12).fill(0), cierre, totalPrev: totals[yP] || 0, totalCierre,
     comprometido, tendencia, excedente,
@@ -2075,6 +2105,7 @@ function renderProyeccion() {
   document.querySelectorAll('#sec-proyeccion .proj-yp').forEach(el => { el.textContent = yP; });
   document.querySelectorAll('#sec-proyeccion .proj-yn').forEach(el => { el.textContent = yN; });
   document.querySelectorAll('#sec-proyeccion .proj-yfirst').forEach(el => { el.textContent = vb.years[0]; });
+  document.querySelectorAll('#sec-proyeccion .proj-ymanual').forEach(el => { el.textContent = vb.anioManualFin; });
 
   // Nota de composición: cuánto del "Cierre estimado" del año en curso es lo ya comprometido (cargado hoy
   // en Data Comercial) vs. cuánto es venta nueva esperada según la tendencia histórica de
@@ -2163,7 +2194,7 @@ function renderProyeccion() {
     </tbody></table></div>`;
 
   const elRoi = document.getElementById('projRoiNota');
-  if (elRoi) elRoi.textContent = `Venta Neta histórica (${vb.years[0]}-2024) estimada con el % de ROI promedio combinado ${yP}+${yC}: ${fmtPct(computeAvgROIPct() * 100)}`;
+  if (elRoi) elRoi.textContent = `Venta Neta histórica (${vb.years[0]}-${vb.anioManualFin}) estimada con el % de ROI promedio combinado ${yP}+${yC}: ${fmtPct(computeAvgROIPct() * 100)}`;
 
   const elHistVB = document.getElementById('projHistBruta');
   if (elHistVB) elHistVB.innerHTML = buildHistoricalTable(vb.monthlyReal, vb.years, '#d9662c');

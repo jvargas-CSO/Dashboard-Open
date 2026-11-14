@@ -502,6 +502,69 @@ function processDataWorkbook(workbook) {
 }
 
 // =========================================================================
+// Concentrado de Ventas 2024 (pestaña "Data") -> mismos registros que las pestañas de año de
+// Data Comercial. Es el mismo tipo de información pero con otro formato: el encabezado está en la
+// fila 3 (arriba van totales), el status viene en 3 columnas Sí/No (Intercambio, Intercompañía,
+// Suma Forecast), el mes va en texto ("junio"), el "Medio" aparece dos veces (la 2ª es el Tipo
+// Arrendado/Propio) y algunos encabezados se llaman distinto. Aquí se traduce a los nombres que
+// ya entiende processDataWorkbook y se reutiliza esa misma lógica, para que 2024 se mida con
+// exactamente las mismas reglas que 2025 y 2026.
+// Solo se toman las líneas con Año 2024: las de 2025 que trae ese archivo ya viven en la pestaña
+// "2025" de Data Comercial y contarlas dos veces duplicaría la venta.
+// =========================================================================
+function processConcentrado2024Values(values, anioConcentrado = 2024) {
+  let hRow = -1;
+  for (let i = 0; i < Math.min(10, (values || []).length); i++) {
+    const hs = (values[i] || []).map(normTexto);
+    if (hs.includes('nombre ejecutivo comercial') && hs.includes('tarifa total cliente')) { hRow = i; break; }
+  }
+  if (hRow < 0) return [];
+  const alias = {
+    'cliente nombre comercial': 'Cliente/Marca',
+    'proveedor razon comercial': 'Proveedor Comercial',
+    'roi total': 'Total ROIs',
+    'comision final a pagar ejecutivo': 'Comision final Vendedor',
+  };
+  let medios = 0;
+  const hdrNorm = (values[hRow] || []).map(normTexto);
+  const header = (values[hRow] || []).map(h => {
+    const raw = String(h == null ? '' : h).replace(/\s+/g, ' ').trim();
+    const n = normTexto(raw);
+    if (n === 'medio' && ++medios === 2) return 'Tipo'; // 2ª columna "Medio" = Arrendado / Propio
+    return alias[n] || raw;
+  });
+  const idx = name => hdrNorm.indexOf(name);
+  // Ojo: "Mes" (texto, col. P) y "Mes #" (número) normalizan igual; idx() devuelve la primera.
+  const iAnio = idx('ano'), iMes = idx('mes'), iTc = idx('tipo de compra');
+  const iMesNumerico = (values[hRow] || []).findIndex(h => String(h || '').trim() === 'Mes #');
+  const iSF = idx('suma forecast'), iIC = idx('intercambio'), iICo = idx('intercompania');
+  const MESES_TXT = { enero:1, febrero:2, marzo:3, abril:4, mayo:5, junio:6, julio:7, agosto:8, septiembre:9, setiembre:9, octubre:10, noviembre:11, diciembre:12 };
+  const esSi = v => normTexto(v) === 'si';
+  const out = [header.concat(['Status OPEN'])];
+  for (let i = hRow + 1; i < values.length; i++) {
+    const r = values[i];
+    if (!r || !r.length) continue;
+    const anio = iAnio >= 0 ? int(r[iAnio]) : 0;
+    if (anio && anio !== anioConcentrado) continue;
+    const row = header.map((_, j) => (r[j] === undefined ? null : r[j]));
+    // Mes: texto ("junio") -> número; si falta, se usa la columna "Mes #".
+    if (iMes >= 0) {
+      let m = MESES_TXT[normTexto(r[iMes])] || int(r[iMes]);
+      if (!m && iMesNumerico >= 0) m = int(r[iMesNumerico]);
+      row[iMes] = m || null;
+    }
+    if (iAnio >= 0 && !anio) row[iAnio] = anioConcentrado;
+    if (iTc >= 0 && normTexto(r[iTc]) === 'facturable') row[iTc] = 'Facturable';
+    const status = esSi(r[iSF]) ? 'Suma Forecast' : esSi(r[iIC]) ? 'Intercambio' : esSi(r[iICo]) ? 'Intercompañía' : 'Sin clasificar';
+    row.push(status);
+    out.push(row);
+  }
+  if (out.length < 2) return [];
+  const ws = XLSX.utils.aoa_to_sheet(out);
+  return processDataWorkbook({ SheetNames: [String(anioConcentrado)], Sheets: { [String(anioConcentrado)]: ws } });
+}
+
+// =========================================================================
 // Procesar Excel de Forecast (vendedor + cliente + 12 meses)
 // =========================================================================
 // El año de cada renglón sale del NOMBRE de su pestaña ("2026", "2027", "Forecast 2027"…): así
