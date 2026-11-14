@@ -40,3 +40,6 @@ Este script crea, para cada ejecutivo, un archivo de Google Sheets con **solo su
 - Los datos se refrescan una vez al día (o con el botón manual), no al instante.
 - El ejecutivo puede abrir su archivo directamente en Google Sheets y ver ahí lo mismo que ve en el dashboard; nada más.
 - Los coordinadores y la pestaña Campañas son la etapa 2.
+
+## Probar sin las personas: menú «Vista de»
+Quien tiene acceso total (y es dueño de los archivos generados) ve arriba del dashboard un menú **👁 Vista de**. Al elegir a una persona (ADV, gerente o ejecutivo) el dashboard carga **sus archivos reales** y muestra exactamente lo que ella vería. «↩ Volver a mi vista» regresa a la vista completa. Requiere haber ejecutado antes «Actualizar copias ahora». No prueba los permisos de Google (eso lo hace Google al compartir cada archivo).

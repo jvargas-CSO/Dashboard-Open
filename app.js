@@ -272,6 +272,8 @@ async function loadFromDriveAndBoot({ silent = false } = {}) {
       console.error('No se pudo cargar Patrimonial:', patErr);
       patrimonialLoaded = false;
     }
+    // Menú "Vista de" (solo dirección): ver lo que ve cada ejecutivo / ADV. No bloquea nada.
+    if (typeof execInitPreview === 'function') execInitPreview();
 
     if (silent) {
       populateFilters();

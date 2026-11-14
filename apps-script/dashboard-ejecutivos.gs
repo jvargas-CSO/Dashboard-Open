@@ -147,6 +147,9 @@ function filasForecast(values, ejeNorm) {
   return { header: header, rows: rows };
 }
 
+// Valores que se escriben mientras algo no está definido: no son nombres de ejecutivo.
+function esPlaceholder(x) { return ['pendiente', 'por definir', 'tbd', 'na', 'n a', 'ninguno', 'no aplica'].indexOf(normTxt(x)) >= 0 || /^[-–—\s]*$/.test(String(x)); }
+
 /**
  * Lee la hoja de accesos tal como la maneja Jona: encabezados en cualquier fila (se busca «Correo»),
  * columnas Nombre | Puesto | Correo | Acceso, y opcionalmente «Ve a» con los ejecutivos adicionales
@@ -173,7 +176,7 @@ function parsearAccesos(values) {
     var puesto = iPue >= 0 ? String(r[iPue] || '').trim() : '';
     var acceso = iAcc >= 0 ? String(r[iAcc] || '').trim() : '';
     var total = normTxt(acceso) === 'total';
-    var extras = iVe >= 0 ? String(r[iVe] || '').split(/[;,\n]/).map(function (x) { return x.trim(); }).filter(Boolean) : [];
+    var extras = iVe >= 0 ? String(r[iVe] || '').split(/[;,\n]/).map(function (x) { return x.trim(); }).filter(function (x) { return x && !esPlaceholder(x); }) : [];
     var esAdv = /\badv\b/i.test(puesto) || normTxt(puesto) === 'adv';
     var ejecutivos = [];
     if (!total) {

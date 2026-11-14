@@ -689,6 +689,7 @@ body.exec-mode .admin-only { display: none !important; }
 .exec-bar-item#execWho { font-weight: 800; font-size: 14px; align-self: center; }
 .exec-bar-info { margin-left: auto; font-size: 11px; color: var(--text-muted); align-self: center; }
 .px-seg button.dis { opacity: .4; pointer-events: none; }
+.preview-bar { background: rgba(217,102,44,0.07); border-bottom: 1px solid rgba(217,102,44,0.35); }
 
 /* CARDS */
 .cards-grid {
@@ -1025,6 +1026,12 @@ tbody tr:hover { background: var(--bg-card-hover); }
     <button class="btn admin-only" onclick="exportCSV()">↓ CSV</button>
   </div>
 </header>
+
+<div class="exec-bar preview-bar" id="previewBar" style="display:none">
+  <div class="exec-bar-item"><span class="px-lbl">👁 Vista de</span><select id="previewPick" class="px-in" style="width:auto;min-width:260px"></select></div>
+  <div class="exec-bar-item exec-bar-info" id="previewInfo" style="margin-left:0;align-self:center"></div>
+  <button type="button" class="px-btn" id="previewBack" style="display:none;align-self:center">↩ Volver a mi vista</button>
+</div>
 
 <div class="exec-bar" id="execBar" style="display:none">
   <div class="exec-bar-item" id="execWho"></div>

@@ -60,6 +60,7 @@ function execProcesar(wb) {
 }
 
 async function loadExecModeAndBoot({ silent = false } = {}) {
+  if (execPreview) { await execVerComo(execPreview, { silent: true }); return; }   // dirección viendo como otra persona
   const loading = document.getElementById('loading');
   if (!silent) setDzStatus('Buscando tus archivos de seguimiento…');
   else { loading.classList.remove('hide'); document.getElementById('loadingText').textContent = 'Actualizando tu información…'; }
@@ -100,6 +101,7 @@ function execAplicar({ boot = false } = {}) {
     f.data.fc.forEach(x => fc.push(x));
     warnings = warnings.concat(f.data.warnings || []);
   });
+  if (execPreview) { Engine.operaciones = null; Engine.opsMatchByCM = {}; Engine.patrimonial = null; Engine.contactos = []; }
   Engine.load(records, { name: 'Mi información' });
   dataLoaded = true;
   Engine.loadForecast(fc, { name: 'Mi forecast' });
@@ -144,3 +146,122 @@ function execWire() {
   });
 }
 execWire();
+
+
+// =========================================================================
+// "VISTA DE" — solo dirección: ver exactamente lo que ve una persona.
+// Carga el archivo REAL «Dashboard Ejecutivo - …» que generó el script (la dirección es la dueña
+// de esos archivos, así que puede abrirlos) y arma la misma vista que tendría esa persona. Sirve
+// para probar sin necesitar su cuenta. No prueba los permisos de Google (eso lo hace Google).
+// =========================================================================
+const ACCESOS_SHEET_ID = '1yoRIFp8wpP9XwoG8-ouqY-dItCHF3h6OOGVdNX61LsY';   // hoja "accesos dashboard" (protegida por permisos de Google)
+let execPreview = null;        // { nombre, puesto, ejecutivos:[] } mientras se ve como otra persona
+let execPersonas = [];
+
+const execKey = n => { const k = normTexto(n); return k === 'viani' ? 'viani paz' : k; };
+const execPlaceholder = x => ['pendiente', 'por definir', 'tbd', 'na', 'n a', 'ninguno', 'no aplica'].includes(normTexto(x)) || /^[-–—\s]*$/.test(String(x));
+
+// Misma regla que parsearAccesos() del script de Apps Script (sin correos: aquí solo se necesitan nombres)
+function execParsearPersonas(values) {
+  let h = -1, idx = {};
+  for (let i = 0; i < Math.min(10, values.length); i++) {
+    const m = {}; (values[i] || []).forEach((c, j) => { const n = normTexto(c); if (n && m[n] == null) m[n] = j; });
+    if (m['correo'] != null) { h = i; idx = m; break; }
+  }
+  if (h < 0) return [];
+  const col = names => { for (const n of names) if (idx[n] != null) return idx[n]; return -1; };
+  const iNom = col(['nombre']), iPue = col(['puesto', 'rol']), iCor = col(['correo']), iAcc = col(['acceso']), iVe = col(['ve a', 've tambien a', 'ejecutivo s', 'ejecutivos', 'ejecutivo']);
+  const out = [];
+  values.slice(h + 1).forEach(r => {
+    if (!String(r[iCor] || '').includes('@')) return;
+    const nombre = iNom >= 0 ? String(r[iNom] || '').trim() : '', puesto = iPue >= 0 ? String(r[iPue] || '').trim() : '';
+    const total = normTexto(iAcc >= 0 ? r[iAcc] : '') === 'total';
+    const esAdv = /\badv\b/i.test(puesto);
+    const extras = iVe >= 0 ? String(r[iVe] || '').split(/[;,\n]/).map(x => x.trim()).filter(x => x && !execPlaceholder(x)) : [];
+    const ejecutivos = [];
+    if (!total) {
+      if (!esAdv && nombre) ejecutivos.push(nombre);
+      extras.forEach(e => { if (!ejecutivos.some(x => execKey(x) === execKey(e))) ejecutivos.push(e); });
+    }
+    if (nombre) out.push({ nombre, puesto, total, ejecutivos });
+  });
+  return out;
+}
+
+async function fetchAccesosValues() {
+  const meta = await (await driveApiRequest(`https://sheets.googleapis.com/v4/spreadsheets/${ACCESOS_SHEET_ID}?fields=sheets.properties.title`)).json();
+  const tabs = (meta.sheets || []).map(s => s.properties.title);
+  const tab = tabs.find(t => normTexto(t) === 'accesos') || tabs[0];
+  const res = await driveApiRequest(`https://sheets.googleapis.com/v4/spreadsheets/${ACCESOS_SHEET_ID}/values/${encodeURIComponent("'" + tab + "'")}?valueRenderOption=UNFORMATTED_VALUE`);
+  return (await res.json()).values || [];
+}
+
+// Se llama al terminar la carga de dirección. Si la cuenta no puede leer la hoja de accesos, el menú no aparece.
+async function execInitPreview() {
+  if (execMode || execPreview) return;
+  try {
+    execPersonas = execParsearPersonas(await fetchAccesosValues()).filter(p => !p.total && p.ejecutivos.length);
+  } catch (e) { execPersonas = []; }
+  const bar = document.getElementById('previewBar');
+  if (!execPersonas.length) { bar.style.display = 'none'; return; }
+  const pick = document.getElementById('previewPick');
+  pick.innerHTML = '<option value="">Mi vista (completa)</option>' + execPersonas.map((p, i) => `<option value="${i}">${escapeHtml(p.nombre)} · ${escapeHtml(p.puesto)}</option>`).join('');
+  pick.value = '';
+  bar.style.display = 'flex';
+  document.getElementById('previewInfo').textContent = 'Para probar lo que ve cada persona (con los archivos reales que genera el script).';
+  if (!pick.dataset.wired) {
+    pick.dataset.wired = '1';
+    pick.addEventListener('change', () => { const v = pick.value; if (v === '') execVolverAMiVista(); else execVerComo(execPersonas[+v]); });
+    document.getElementById('previewBack').addEventListener('click', () => execVolverAMiVista());
+  }
+}
+
+async function execVerComo(persona, { silent = false } = {}) {
+  const loading = document.getElementById('loading');
+  loading.classList.remove('hide'); document.getElementById('loadingText').textContent = `Cargando la vista de ${persona.nombre}…`;
+  try {
+    const q = encodeURIComponent("'me' in owners and mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false and name contains 'Dashboard'");
+    const res = await driveApiRequest(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=${encodeURIComponent('files(id,name)')}&pageSize=200&supportsAllDrives=true&includeItemsFromAllDrives=true`);
+    const archivos = ((await res.json()).files || []).filter(f => String(f.name).startsWith(EXEC_FILE_PREFIX));
+    const porClave = new Map(archivos.map(f => [execKey(f.name.slice(EXEC_FILE_PREFIX.length)), f]));
+    const hallados = [], faltan = [];
+    persona.ejecutivos.forEach(n => { const f = porClave.get(execKey(n)); if (f) hallados.push({ f, n }); else faltan.push(n); });
+    if (!hallados.length) {
+      loading.classList.add('hide');
+      alert(`Aún no existen los archivos de ${persona.ejecutivos.join(', ')}.\n\nEjecuta «Dashboard → Actualizar copias ahora» en la hoja de accesos y vuelve a intentar.`);
+      document.getElementById('previewPick').value = execPreview ? String(execPersonas.indexOf(execPreview)) : '';
+      return;
+    }
+    const cargados = await Promise.all(hallados.map(async ({ f, n }) => ({ id: f.id, name: f.name, ejecutivo: n, data: execProcesar(await fetchWorkbookFromDrive(f.id)) })));
+    cargados.sort((a, b) => a.ejecutivo.localeCompare(b.ejecutivo, 'es'));
+    execFiles = cargados;
+    execPreview = persona;
+    execMode = true; execChecked = true;
+    document.body.classList.add('exec-mode');
+    execSel = execFiles.length === 1 ? execFiles[0].id : 'ALL';
+    execView = 'mia';
+    const entrando = !silent;
+    execAplicar();
+    if (entrando) document.querySelector('.nav-item[data-tab="resumen"]').click();
+    const info = document.getElementById('previewInfo');
+    info.textContent = `Estás viendo lo que ve ${persona.nombre} (${persona.puesto}).` + (faltan.length ? ` Sin archivo aún: ${faltan.join(', ')}.` : '');
+    document.getElementById('previewBack').style.display = '';
+    document.getElementById('previewPick').value = String(execPersonas.indexOf(persona));
+  } catch (err) {
+    console.error(err);
+    loading.classList.add('hide');
+    alert('No se pudo cargar esa vista: ' + (err && err.message ? err.message : err));
+  }
+}
+
+async function execVolverAMiVista() {
+  execPreview = null; execMode = false; execChecked = true; execFiles = [];
+  document.body.classList.remove('exec-mode');
+  document.getElementById('execBar').style.display = 'none';
+  document.getElementById('previewBack').style.display = 'none';
+  document.getElementById('previewPick').value = '';
+  document.getElementById('previewInfo').textContent = 'Para probar lo que ve cada persona (con los archivos reales que genera el script).';
+  // Proyección: recuperar los supuestos de dirección (en la vista previa se usaron los de ejecutivo)
+  if (typeof pxLoad === 'function') { PX = pxLoad(); pxExecInit = false; pxPanelSig = ''; }
+  await loadFromDriveAndBoot({ silent: true });
+}
