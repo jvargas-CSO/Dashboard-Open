@@ -4,17 +4,21 @@ Este script crea, para cada ejecutivo, un archivo de Google Sheets con **solo su
 
 ## Instalar (una sola vez, ~10 minutos)
 
-1. **Crea un Google Sheet nuevo** en tu Drive (por ejemplo, «Accesos Dashboard»). Renombra la primera pestaña a **`Accesos`** y pon estos encabezados en la fila 1:
+1. **Usa tu hoja de accesos** («accesos dashboard»). Mantén sus columnas **Nombre | Puesto | Correo | Acceso** y agrega una más al final: **Ve a**.
 
-   | Correo | Rol | Ejecutivo(s) | Estado |
-   |---|---|---|---|
-   | ejemplo@opent.com.mx | Ejecutivo | Ricardo Ramírez | *(lo llena el script)* |
-   | adv@opent.com.mx | ADV | Ricardo Ramírez; Marie Tenorio | |
+   | Nombre | Puesto | Correo | Acceso | Ve a |
+   |---|---|---|---|---|
+   | (dirección) | Director… | … | Total | *(vacío)* |
+   | (ADV) | ADV | … | propio y de su ejecutivo | Nombre del ejecutivo de su dúo |
+   | (gerente) | Gerente Comercial | … | Propio y su ejecutivo jr | Nombre(s) de su ejecutivo jr, separados por `;` |
+   | (ejecutivo) | Ejecutivo Comercial | … | propio | *(vacío)* |
 
-   - **Ejecutivo(s)**: el nombre como aparece en Data Comercial (acentos y mayúsculas no importan). Si una persona ve a varios (ADV, mentor), sepáralos con `;`.
-   - **Rol** es solo informativo; lo que da acceso es la columna Ejecutivo(s).
-   - Quien **no** esté en la lista no podrá ver nada.
-2. En ese Sheet: **Extensiones → Apps Script**. Borra lo que haya, pega **todo** el contenido de `dashboard-ejecutivos.gs` y guarda.
+   - **Total** = dirección: ve todo entrando con su cuenta (necesita acceso de lectura a los Sheets principales). El script no les crea archivo.
+   - **ADV**: ve solo los ejecutivos de «Ve a».
+   - **Gerente / Ejecutivo**: ve su propio nombre más los de «Ve a».
+   - Los nombres deben ser los que aparecen en Data Comercial (acentos y mayúsculas no importan).
+   - El script escribe en la columna **Estado** (la crea si no existe) cuántas líneas llevó cada archivo o el error. Quien no esté en la lista no podrá ver nada.
+2. En esa hoja: **Extensiones → Apps Script**. Borra lo que haya, pega **todo** el contenido de `dashboard-ejecutivos.gs` y guarda.
 3. Recarga el Sheet. Aparece el menú **Dashboard**. Elige **Actualizar copias ahora**. La primera vez Google pide autorización (Drive y Sheets): acéptala con tu cuenta.
 4. Menú **Dashboard → Programar actualización diaria** (corre cada día cerca de las 5:00).
 5. En **Google Cloud Console → Pantalla de consentimiento OAuth**, si sigue en modo *Testing*, agrega a cada ejecutivo como **Test user** (o publica la app / ponla como *Internal*). Sin eso, Google no los deja iniciar sesión.

@@ -25,7 +25,7 @@ var CFG = {
   FORECAST_ID: '1GNm0czUzY-WF5S8BtV-jqvxjNZ6KNbpZnI1O-nlvsb0',   // Forecast por vendedor (pestañas por año)
   CONC24_ID: '1j1LQeU6NDxLn4y3My5vahTFUxVUtjAqazV6i6R2Fs1Y',     // Concentrado de ventas 2024
   CONC24_TAB: 'Data',
-  ACCESOS_TAB: 'Accesos',
+  ACCESOS_TAB: 'Accesos',                                         // si no existe, se usa la primera pestaña
   FOLDER_NAME: 'Dashboard Ejecutivos',
   FILE_PREFIX: 'Dashboard Ejecutivo - ',                          // el dashboard busca archivos con este prefijo
   OTRO: 'Otro ejecutivo',
@@ -147,14 +147,40 @@ function filasForecast(values, ejeNorm) {
   return { header: header, rows: rows };
 }
 
-/** Lee la hoja Accesos: [{correo, rol, ejecutivos:[...]}] (ignora filas incompletas). */
+/**
+ * Lee la hoja de accesos tal como la maneja Jona: encabezados en cualquier fila (se busca «Correo»),
+ * columnas Nombre | Puesto | Correo | Acceso, y opcionalmente «Ve a» con los ejecutivos adicionales
+ * (separados por ; o ,). Regla de a quién ve cada persona:
+ *   · Acceso «Total» → dirección: lee los Sheets principales (no lleva archivos por ejecutivo).
+ *   · ADV → solo los ejecutivos de la columna «Ve a» (su dúo).
+ *   · Gerente / Ejecutivo comercial → su propio nombre + los de «Ve a» (por ejemplo, su ejecutivo jr).
+ */
 function parsearAccesos(values) {
+  var h = -1, idx = {};
+  for (var i = 0; i < Math.min(10, values.length); i++) {
+    var m = indiceEncabezados(values[i] || []);
+    if (m['correo'] != null) { h = i; idx = m; break; }
+  }
+  if (h < 0) return [];
+  var col = function (nombres) { for (var k = 0; k < nombres.length; k++) if (idx[nombres[k]] != null) return idx[nombres[k]]; return -1; };
+  var iNom = col(['nombre']), iPue = col(['puesto', 'rol']), iCor = col(['correo']), iAcc = col(['acceso']),
+      iVe = col(['ve a', 've tambien a', 'ejecutivo s', 'ejecutivos', 'ejecutivo']);
   var out = [];
-  values.slice(1).forEach(function (r, i) {
-    var correo = String(r[0] || '').trim().toLowerCase();
+  values.slice(h + 1).forEach(function (r, i) {
+    var correo = String(r[iCor] || '').trim().toLowerCase();
     if (!correo || correo.indexOf('@') < 0) return;
-    var ejes = String(r[2] || '').split(/[;,\n]/).map(function (s) { return s.trim(); }).filter(Boolean);
-    out.push({ fila: i + 2, correo: correo, rol: String(r[1] || '').trim(), ejecutivos: ejes });
+    var nombre = iNom >= 0 ? String(r[iNom] || '').trim() : '';
+    var puesto = iPue >= 0 ? String(r[iPue] || '').trim() : '';
+    var acceso = iAcc >= 0 ? String(r[iAcc] || '').trim() : '';
+    var total = normTxt(acceso) === 'total';
+    var extras = iVe >= 0 ? String(r[iVe] || '').split(/[;,\n]/).map(function (x) { return x.trim(); }).filter(Boolean) : [];
+    var esAdv = /\badv\b/i.test(puesto) || normTxt(puesto) === 'adv';
+    var ejecutivos = [];
+    if (!total) {
+      if (!esAdv && nombre) ejecutivos.push(nombre);
+      extras.forEach(function (e) { if (ejecutivos.map(normEje).indexOf(normEje(e)) < 0) ejecutivos.push(e); });
+    }
+    out.push({ fila: h + 2 + i, nombre: nombre, puesto: puesto, correo: correo, acceso: acceso, total: total, esAdv: esAdv, ejecutivos: ejecutivos });
   });
   return out;
 }
@@ -194,9 +220,20 @@ function programarDiaria() {
 }
 
 function leerAccesos_() {
-  var hoja = SpreadsheetApp.getActive().getSheetByName(CFG.ACCESOS_TAB);
-  if (!hoja) throw new Error('Falta la pestaña «' + CFG.ACCESOS_TAB + '» (Correo | Rol | Ejecutivo(s) | Estado).');
+  var ss = SpreadsheetApp.getActive();
+  var hoja = ss.getSheetByName(CFG.ACCESOS_TAB) || ss.getSheets()[0];
   return { hoja: hoja, accesos: parsearAccesos(hoja.getDataRange().getValues()) };
+}
+/** Columna «Estado» (la crea al final del encabezado si no existe) y la deja escrita por fila. */
+function escribirEstados_(hoja, estados) {
+  var valores = hoja.getDataRange().getValues(), h = -1, iEst = -1;
+  for (var i = 0; i < Math.min(10, valores.length); i++) {
+    var m = indiceEncabezados(valores[i] || []);
+    if (m['correo'] != null) { h = i; iEst = m['estado'] != null ? m['estado'] : -1; break; }
+  }
+  if (h < 0) return;
+  if (iEst < 0) { iEst = valores[h].length; hoja.getRange(h + 1, iEst + 1).setValue('Estado'); }
+  Object.keys(estados).forEach(function (fila) { hoja.getRange(parseInt(fila, 10), iEst + 1).setValue(estados[fila]); });
 }
 
 function revisarAccesos() {
@@ -300,9 +337,13 @@ function actualizarTodo() {
     } catch (err) { estado[k] = 'ERROR: ' + err.message; }
   });
   revocarHuerfanos_(carp, mapa);
-  // Estado por correo en la columna D de Accesos
+  // Estado por persona en la columna «Estado» de la hoja de accesos
+  var estados = {};
   a.accesos.forEach(function (acc) {
+    if (acc.total) { estados[acc.fila] = 'Dirección: ve todo con acceso a los Sheets principales (no lleva archivo)'; return; }
+    if (!acc.ejecutivos.length) { estados[acc.fila] = 'Falta indicar a qué ejecutivo(s) ve (columna «Ve a»)'; return; }
     var msgs = acc.ejecutivos.map(function (n) { return estado[normEje(n)] || ''; }).filter(Boolean);
-    a.hoja.getRange(acc.fila, 4).setValue(msgs.join(' | ') || 'Sin ejecutivo asignado');
+    estados[acc.fila] = msgs.join(' | ');
   });
+  escribirEstados_(a.hoja, estados);
 }
