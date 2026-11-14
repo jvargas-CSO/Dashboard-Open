@@ -268,7 +268,7 @@ function updateHeaderInfo() {
   fc.style.display = 'inline-flex';
   if (forecastLoaded) {
     fc.classList.add('green');
-    fc.textContent = `Forecast: ${Engine.forecast.length} entradas`;
+    fc.textContent = `Forecast ${(Engine.forecastYears || []).join(' y ')}: ${Engine.forecast.length} entradas`;
   } else {
     fc.classList.remove('green');
     fc.textContent = 'Forecast no disponible — sube uno manual';
@@ -349,8 +349,8 @@ function populateFilters() {
   fillSel('f-anio', Engine.yearsAvailable.map(a => ({v:a, t:String(a)})));
   fillSel('f-mes', MESES.map((m,i)=>({v:i+1, t:MESES_FULL[i]})));
   fillSel('f-emp', uniq('emp').map(v=>({v,t:v})));
-  // Ejecutivos: solo los activos en 2026 (con forecast). Si no hay forecast cargado, todos.
-  const ejesActivos = forecastLoaded ? Engine.vendedoresActivos2026() : uniq('eje');
+  // Ejecutivos: solo los activos (con forecast del año en curso o posterior). Si no hay forecast cargado, todos.
+  const ejesActivos = forecastLoaded ? Engine.vendedoresActivos() : uniq('eje');
   fillSel('f-eje', ejesActivos.map(v=>({v,t:v})));
   // Mismo listado de ejecutivos que el filtro global de arriba, para el filtro local de Campañas.
   fillSel('campanaFiltroEje', ejesActivos.map(v=>({v,t:v})));
@@ -368,8 +368,8 @@ function populateFilters() {
   setupStatusMultiSelect();
 
   const ejesAll = Engine.groupBy(Engine.facturable(Engine.records), 'eje').sort((a,b)=>b.vb-a.vb);
-  // Filtrar a activos 2026 si hay forecast
-  const ejesShow = forecastLoaded ? ejesAll.filter(e => Engine.isActive2026(e.key)) : ejesAll;
+  // Filtrar a activos (con forecast vigente) si hay forecast
+  const ejesShow = forecastLoaded ? ejesAll.filter(e => Engine.isActive(e.key)) : ejesAll;
   const sel = document.getElementById('vendedorSel');
   sel.innerHTML = '';
   ejesShow.forEach(e => {
@@ -623,7 +623,16 @@ function updateStatusMultiSelectUI() {
 // =========================================================================
 // RENDER
 // =========================================================================
+// Año que se está viendo (filtro de Año, o el año en curso / más reciente) y el anterior, para los
+// títulos con comparativo (<span class="y-sel"> y <span class="y-prev"> en index.html).
+function updateYearLabels() {
+  const ys = parseInt(filters.anio) || (Engine.yearsAvailable.length ? Math.max(...Engine.yearsAvailable) : new Date().getFullYear());
+  document.querySelectorAll('.y-sel').forEach(el => { el.textContent = ys; });
+  document.querySelectorAll('.y-prev').forEach(el => { el.textContent = ys - 1; });
+}
+
 function render() {
+  updateYearLabels();
   const tab = document.querySelector('.nav-item.active').dataset.tab;
   switch(tab) {
     case 'resumen': renderResumen(); break;
@@ -659,7 +668,7 @@ const MARGEN_OBJETIVO = 0.32;  // 32% sobre venta neta forecast
 
 // Devuelve grupo del año anterior para comparativo
 function groupByPrev(key, valKey='vb') {
-  const yActual = parseInt(filters.anio) || 2026;
+  const yActual = parseInt(filters.anio) || new Date().getFullYear();
   const yPrev = yActual - 1;
   const factPrev = Engine.facturable(Engine.applyFilters({...filters, anio: yPrev}, {ignoreYear:false}));
   const grpPrev = Engine.groupBy(factPrev, key);
@@ -668,12 +677,13 @@ function groupByPrev(key, valKey='vb') {
   return map;
 }
 function renderYoYCell(actual, previous, valKey='vb') {
+  const yA = parseInt(filters.anio) || new Date().getFullYear();
   const a = actual?.[valKey] || 0;
   const p = previous?.[valKey] || 0;
   const yoy = p ? ((a-p)/p*100) : null;
   const cls = yoy === null ? '' : yoy>=0 ? 'pos' : 'neg';
   const txt = yoy === null ? (a>0?'🆕':'—') : (yoy>=0?'+':'')+fmtPct(yoy);
-  const tooltip = `${valKey==='vb'?'V. Bruta':valKey==='vn'?'V. Neta':valKey==='ut'?'Utilidad':'Costo'}\n2026: ${fmtMoney(a)}\n2025: ${fmtMoney(p)}\nDiff: ${fmtMoney(a-p)}`;
+  const tooltip = `${valKey==='vb'?'V. Bruta':valKey==='vn'?'V. Neta':valKey==='ut'?'Utilidad':'Costo'}\n${yA}: ${fmtMoney(a)}\n${yA-1}: ${fmtMoney(p)}\nDiff: ${fmtMoney(a-p)}`;
   return `<td class="num" style="color:var(--text-muted)" title="${tooltip}">${fmtMoney(p)}</td><td class="num ${cls}" title="${tooltip}">${txt}</td>`;
 }
 function alcanceColor(p) {
@@ -704,7 +714,7 @@ function buildResumenInsights({ fact, factPrev, t, tP, yActual, yPrev, showFC, f
     const pctVsForecast = cierre / fcBrutoTotal * 100;
     insights.push({
       level: pctVsForecast >= 100 ? 'success' : pctVsForecast >= 90 ? 'info' : 'warning',
-      text: `Proyección de cierre ${yActual} (real + forecast del resto del año): ${fmtMoneyShort(cierre)} en Venta Bruta — ${fmtPct(pctVsForecast)} del forecast anual (${fmtMoneyShort(fcBrutoTotal)}). Ver detalle mensual y forecast 2027 en la pestaña Proyección.`,
+      text: `Proyección de cierre ${yActual} (real + forecast del resto del año): ${fmtMoneyShort(cierre)} en Venta Bruta — ${fmtPct(pctVsForecast)} del forecast anual (${fmtMoneyShort(fcBrutoTotal)}). Ver detalle mensual y forecast ${yActual + 1} en la pestaña Proyección.`,
     });
   }
 
@@ -788,13 +798,13 @@ function renderResumen() {
   const fact = Engine.facturable(data);
   const t = Engine.totalize(fact);
 
-  const yActual = parseInt(filters.anio) || (Engine.yearsAvailable.length ? Math.max(...Engine.yearsAvailable) : 2026);
+  const yActual = parseInt(filters.anio) || (Engine.yearsAvailable.length ? Math.max(...Engine.yearsAvailable) : new Date().getFullYear());
   const yPrev = yActual ? yActual - 1 : null;
   const factPrev = yPrev ? Engine.facturable(Engine.applyFilters({...filters, anio:yPrev}, {ignoreYear:false})) : [];
   const tP = Engine.totalize(factPrev);
 
-  // Forecast: solo si está cargado y es 2026
-  const showFC = forecastLoaded && yActual === 2026;
+  // Forecast: solo si está cargado para el año que se está viendo
+  const showFC = forecastLoaded && Engine.hasForecast(yActual);
   // Engine.forecastMonthlyTotal() sumaba TODA la empresa sin importar los filtros del panel
   // superior — bug real: si filtrabas por Ejecutivo/Cliente/Holding/Mes, la venta real sí se
   // filtraba pero el Forecast seguía siendo el de toda la empresa, dando un Alcance % sin
@@ -1046,9 +1056,9 @@ function renderVendedor() {
   const fact = Engine.facturable(data);
   const vData = fact.filter(r => r.eje === selectedVendedor);
 
-  const yActual = parseInt(filters.anio) || (Engine.yearsAvailable.length ? Math.max(...Engine.yearsAvailable) : 2026);
+  const yActual = parseInt(filters.anio) || (Engine.yearsAvailable.length ? Math.max(...Engine.yearsAvailable) : new Date().getFullYear());
   const yPrev = yActual - 1;
-  const showFC = forecastLoaded && yActual === 2026;
+  const showFC = forecastLoaded && Engine.hasForecast(yActual);
 
   const vb = Engine.monthly(vData, 'vb'), vn = Engine.monthly(vData, 'vn'), ut = Engine.monthly(vData, 'ut'), com = Engine.monthly(vData, 'com');
   const totVB = vb.reduce((a,b)=>a+b,0), totVN = vn.reduce((a,b)=>a+b,0), totUT = ut.reduce((a,b)=>a+b,0), totCOM = com.reduce((a,b)=>a+b,0);
@@ -1315,7 +1325,7 @@ function renderAlcanceCliente() {
     document.getElementById('alcanceClienteTrimestral').innerHTML = '';
     return;
   }
-  const yActual = parseInt(filters.anio) || 2026;
+  const yActual = parseInt(filters.anio) || new Date().getFullYear();
   const fact = Engine.facturable(Engine.applyFilters({...filters, anio:yActual}, {ignoreYear:false}));
 
   // 1. Recolectar clientes con forecast (por vendedor o todos)
@@ -1600,7 +1610,7 @@ function renderEstrategia() {
   document.getElementById('concentracionVendedor').innerHTML = html2;
 
   // === Desempeño por Cuenta (sustituye Upsell) ===
-  const yActual = parseInt(filters.anio) || 2026;
+  const yActual = parseInt(filters.anio) || new Date().getFullYear();
   const yPrev = yActual - 1;
   // Para cada cliente: ventas YoY, # categorías, margen, # ODVs, alcance forecast, status
   const cliRows = clis.slice(0, 50).map(c => {
@@ -1614,10 +1624,10 @@ function renderEstrategia() {
     const cats = new Set(recsActual.map(r=>r.cat));
     const odvs = new Set(recsActual.map(r=>r.odv).filter(Boolean));
     const ultimaCampania = [...new Set(recsActual.map(r=>r.cmp).filter(Boolean))].slice(-1)[0] || '—';
-    // Alcance forecast (solo aplica a 2026)
+    // Alcance forecast (solo aplica a años con forecast cargado)
     let alc = null, fcNeto = 0;
-    if (yActual === 2026 && forecastLoaded) {
-      fcNeto = Engine.forecast.filter(f=>f.anio===2026 && f.cli===c.key).reduce((a,f)=>a+f.fcNeto, 0);
+    if (Engine.hasForecast(yActual) && forecastLoaded) {
+      fcNeto = Engine.forecast.filter(f=>f.anio===yActual && f.cli===c.key).reduce((a,f)=>a+f.fcNeto, 0);
       alc = fcNeto ? c.vn/fcNeto*100 : null;
     }
     // YoY
@@ -1636,7 +1646,7 @@ function renderEstrategia() {
 
   let html3 = '<div class="table-wrap"><table><thead class="top"><tr>';
   html3 += '<th>Cliente</th><th>Vendedor</th><th>Holding</th><th class="num">V. Neta '+yActual+'</th><th class="num">V. Neta '+yPrev+'</th><th class="num">YoY %</th><th class="num">Margen %</th><th class="num">Mgn vs Vend.</th><th class="num"># Cats</th><th class="num"># ODVs</th>';
-  if (yActual === 2026 && forecastLoaded) html3 += '<th class="num">Alcance FC</th>';
+  if (Engine.hasForecast(yActual) && forecastLoaded) html3 += '<th class="num">Alcance FC</th>';
   html3 += '<th>Status</th></tr></thead><tbody>';
   cliRows.forEach(c => {
     const yoyCls = c.yoy === null ? '' : c.yoy>=0 ? 'pos' : 'neg';
@@ -1656,7 +1666,7 @@ function renderEstrategia() {
       <td class="num ${mgDelta>=0?'pos':'neg'}">${mgDelta>=0?'+':''}${fmtPct(mgDelta)}</td>
       <td class="num">${c.cats.size}</td>
       <td class="num">${c.odvs.size}</td>`;
-    if (yActual === 2026 && forecastLoaded) html3 += `<td class="num ${alcCls}">${c.alc===null?'—':fmtPct(c.alc)}</td>`;
+    if (Engine.hasForecast(yActual) && forecastLoaded) html3 += `<td class="num ${alcCls}">${c.alc===null?'—':fmtPct(c.alc)}</td>`;
     html3 += `<td>${c.status}</td></tr>`;
   });
   html3 += '</tbody></table></div>';
@@ -1781,21 +1791,22 @@ function buildHeatmap(data, key, valKey, opts={}) {
   return html;
 }
 
-// Heatmap COMPARATIVO 2026 vs 2025: dos filas por item, separadas visualmente con borde
+// Heatmap COMPARATIVO año seleccionado vs año anterior: dos filas por item, separadas visualmente con borde
 function buildHeatmapComparativo(key, valKey, topN=10) {
   const data = Engine.applyFilters(filters, {ignoreYear:true});
   const fact = Engine.facturable(data);
-  const fact2026 = fact.filter(r => r.anio === 2026);
-  const fact2025 = fact.filter(r => r.anio === 2025);
+  const yA = parseInt(filters.anio) || new Date().getFullYear(), yB = yA - 1;
+  const factA = fact.filter(r => r.anio === yA);
+  const factB = fact.filter(r => r.anio === yB);
 
-  // Top items basado en 2026
-  const grp26 = Engine.groupBy(fact2026, key).sort((a,b)=>b[valKey]-a[valKey]);
-  const top = grp26.slice(0, topN);
+  // Top items basado en el año seleccionado
+  const grpA = Engine.groupBy(factA, key).sort((a,b)=>b[valKey]-a[valKey]);
+  const top = grpA.slice(0, topN);
   if (top.length === 0) return '<div style="padding:20px;color:var(--text-muted);text-align:center">Sin datos</div>';
 
-  const m26 = top.map(g => Engine.monthly(fact2026.filter(r=>r[key]===g.key), valKey));
-  const m25 = top.map(g => Engine.monthly(fact2025.filter(r=>r[key]===g.key), valKey));
-  const max = Math.max(...m26.flat(), ...m25.flat(), 1);
+  const mA = top.map(g => Engine.monthly(factA.filter(r=>r[key]===g.key), valKey));
+  const mB = top.map(g => Engine.monthly(factB.filter(r=>r[key]===g.key), valKey));
+  const max = Math.max(...mA.flat(), ...mB.flat(), 1);
 
   let html = '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px">';
   html += '<thead><tr style="background:var(--bg-card)"><th style="padding:6px;text-align:left;width:160px">'+(key==='eje'?'Vendedor':'Categoría')+'</th><th style="padding:6px;text-align:center">Año</th>';
@@ -1803,29 +1814,29 @@ function buildHeatmapComparativo(key, valKey, topN=10) {
   html += '<th style="padding:6px;text-align:center">Total</th><th style="padding:6px;text-align:center">YoY %</th></tr></thead><tbody>';
 
   top.forEach((g, i) => {
-    const t26 = m26[i].reduce((a,b)=>a+b,0);
-    const t25 = m25[i].reduce((a,b)=>a+b,0);
-    const yoy = t25 ? (t26-t25)/t25*100 : null;
+    const tA = mA[i].reduce((a,b)=>a+b,0);
+    const tB = mB[i].reduce((a,b)=>a+b,0);
+    const yoy = tB ? (tA-tB)/tB*100 : null;
     const yoyCls = yoy === null ? '' : yoy>=0 ? 'pos' : 'neg';
 
-    // Fila 2026
-    html += `<tr style="border-top:2px solid var(--border)"><td rowspan="2" style="padding:8px;font-weight:700;border-right:1px solid var(--border);vertical-align:middle">${g.key}</td><td style="padding:6px;text-align:center;color:var(--primary);font-weight:700">2026</td>`;
-    m26[i].forEach(v => {
+    // Fila año seleccionado
+    html += `<tr style="border-top:2px solid var(--border)"><td rowspan="2" style="padding:8px;font-weight:700;border-right:1px solid var(--border);vertical-align:middle">${g.key}</td><td style="padding:6px;text-align:center;color:var(--primary);font-weight:700">${yA}</td>`;
+    mA[i].forEach(v => {
       const intensity = v/max;
       const bg = `rgba(217,102,44,${(0.05+intensity*0.85).toFixed(2)})`;
       html += `<td style="padding:6px;text-align:center;background:${bg};color:${intensity>0.5?'#fff':'#24211c'}" title="${fmtMoney(v)}">${fmtMoneyShort(v)}</td>`;
     });
-    html += `<td style="padding:6px;text-align:center;background:rgba(36,33,28,0.06);font-weight:700">${fmtMoneyShort(t26)}</td>`;
+    html += `<td style="padding:6px;text-align:center;background:rgba(36,33,28,0.06);font-weight:700">${fmtMoneyShort(tA)}</td>`;
     html += `<td rowspan="2" style="padding:6px;text-align:center;vertical-align:middle" class="${yoyCls}"><b>${yoy===null?'—':(yoy>=0?'+':'')+fmtPct(yoy)}</b></td></tr>`;
 
-    // Fila 2025
-    html += `<tr><td style="padding:6px;text-align:center;color:var(--info);font-weight:700">2025</td>`;
-    m25[i].forEach(v => {
+    // Fila año anterior
+    html += `<tr><td style="padding:6px;text-align:center;color:var(--info);font-weight:700">${yB}</td>`;
+    mB[i].forEach(v => {
       const intensity = v/max;
       const bg = `rgba(37,99,235,${(0.05+intensity*0.85).toFixed(2)})`;
       html += `<td style="padding:6px;text-align:center;background:${bg};color:${intensity>0.5?'#fff':'#24211c'}" title="${fmtMoney(v)}">${fmtMoneyShort(v)}</td>`;
     });
-    html += `<td style="padding:6px;text-align:center;background:rgba(36,33,28,0.06);font-weight:700">${fmtMoneyShort(t25)}</td></tr>`;
+    html += `<td style="padding:6px;text-align:center;background:rgba(36,33,28,0.06);font-weight:700">${fmtMoneyShort(tB)}</td></tr>`;
   });
   html += '</tbody></table></div>';
   return html;
@@ -1885,10 +1896,15 @@ function projEstimateCierre(anio, valKey) {
   return real.map((v, i) => mesesConDatos.has(i + 1) ? v : fcMonthly[i]);
 }
 
-// % de ROI promedio (Agencia + Personal) combinando 2025+2026 con datos reales —
+// Año de cierre de la Proyección: el año en curso (mínimo 2026). Todo lo anterior a él es real
+// ya cerrado, él es "real + forecast" (cierre estimado) y el siguiente es la proyección.
+function projAnioCierre() { return Math.max(2026, new Date().getFullYear()); }
+
+// % de ROI promedio (Agencia + Personal) combinando los dos últimos años con datos reales —
 // usado para derivar Venta Neta a partir de la Venta Bruta histórica manual.
 function computeAvgROIPct() {
-  const years = [2025, 2026].filter(y => Engine.yearsAvailable.includes(y));
+  const yC = projAnioCierre();
+  const years = [yC - 1, yC].filter(y => Engine.yearsAvailable.includes(y));
   const fact = years.flatMap(y => Engine.records.filter(r => r.anio === y && r.tc === 'Facturable' && r.st === 'Suma Forecast'));
   const t = Engine.totalize(fact);
   return t.vb > 0 ? t.roi / t.vb : 0.165;
@@ -1896,7 +1912,7 @@ function computeAvgROIPct() {
 
 // Serie histórica completa (2015 al presente) para una métrica dada.
 // 2015-2024: derivado del histórico manual (Bruta directa; Neta/Utilidad vía % ROI + margen objetivo).
-// 2025: real cargado. 2026: real + forecast del resto del año (cierre estimado).
+// 2025 hasta el año anterior al de cierre: real cargado. Año de cierre: real + forecast (cierre estimado).
 function buildFullHistoricalSeries(valKey) {
   const roiPct = computeAvgROIPct();
   const years = [];
@@ -1909,10 +1925,13 @@ function buildFullHistoricalSeries(valKey) {
     years.push(y);
     monthly[y] = vals;
   });
-  years.push(2025);
-  monthly[2025] = projGetYearMonthly(2025, valKey);
-  years.push(2026);
-  monthly[2026] = projEstimateCierre(2026, valKey);
+  const yC = projAnioCierre();
+  for (let y = 2025; y < yC; y++) {
+    years.push(y);
+    monthly[y] = projGetYearMonthly(y, valKey);
+  }
+  years.push(yC);
+  monthly[yC] = projEstimateCierre(yC, valKey);
   return { years, monthly, roiPct };
 }
 
@@ -1931,50 +1950,51 @@ function projLinearRegressionAnnualTotal(series) {
 
 function projBuildForecast(valKey) {
   const { years, monthly } = buildFullHistoricalSeries(valKey);
+  const yC = projAnioCierre(), yP = yC - 1, yN = yC + 1;
   const totals = {};
   years.forEach(y => { totals[y] = monthly[y].reduce((a, b) => a + b, 0); });
 
-  // "Comprometido" = lo que hoy ya está cargado en Data Comercial para 2026 (real de los meses
-  // transcurridos + Forecast del resto, si algún mes aún no tiene dato cargado). En OOH las
-  // campañas se cargan completas desde la firma, así que esto suele cubrir ya los 12 meses —
+  // "Comprometido" = lo que hoy ya está cargado en Data Comercial para el año de cierre (real de
+  // los meses transcurridos + Forecast del resto, si algún mes aún no tiene dato cargado). En OOH
+  // las campañas se cargan completas desde la firma, así que esto suele cubrir ya los 12 meses —
   // pero eso es solo lo YA VENDIDO a hoy, no una proyección de lo que falta por vender el resto
   // del año (nuevas campañas que se firmarán entre hoy y diciembre y aún no existen en el archivo).
-  const comprometido26Monthly = monthly[2026].slice();
-  const comprometido26 = totals[2026];
+  const comprometidoMonthly = monthly[yC].slice();
+  const comprometido = totals[yC];
 
   // Proyección por tendencia: crecimiento histórico promedio SOLO entre años ya cerrados
-  // (2015→2025, sin incluir 2026 que todavía está en curso), aplicado sobre el real de 2025.
-  // Esto estima dónde DEBERÍA cerrar 2026 según el patrón histórico de la empresa,
+  // (hasta el año anterior al de cierre), aplicado sobre el real de ese año anterior.
+  // Esto estima dónde DEBERÍA cerrar el año en curso según el patrón histórico de la empresa,
   // independientemente de cuánto esté hoy cargado en el archivo.
-  const closedYears = years.filter(y => y <= 2025);
+  const closedYears = years.filter(y => y <= yP);
   const closedGrowths = [];
   for (let i = 1; i < closedYears.length; i++) {
     const yPrev = closedYears[i - 1], yCur = closedYears[i];
     if (totals[yPrev] > 0) closedGrowths.push(totals[yCur] / totals[yPrev] - 1);
   }
   const avgGrowthHist = closedGrowths.length ? closedGrowths.reduce((a, b) => a + b, 0) / closedGrowths.length : 0;
-  const tendencia26 = totals[2025] * (1 + avgGrowthHist);
+  const tendencia = (totals[yP] || 0) * (1 + avgGrowthHist);
 
-  // Cierre estimado 2026 = lo mayor entre lo ya comprometido (piso real, nunca puede cerrar por
+  // Cierre estimado = lo mayor entre lo ya comprometido (piso real, nunca puede cerrar por
   // debajo de lo ya vendido) y la proyección por tendencia (si el patrón histórico sugiere un
   // cierre mayor, porque aún faltan meses por vender). El excedente (venta nueva esperada que
-  // aún no existe en el archivo) se reparte proporcional a la forma estacional ya cargada de
-  // 2026, porque no sabemos en qué mes exacto aterrizará esa venta nueva.
-  const total26 = Math.max(comprometido26, tendencia26);
-  const excedente26 = total26 - comprometido26;
-  const cierre26 = comprometido26 > 0
-    ? comprometido26Monthly.map(v => v + (v / comprometido26) * excedente26)
-    : comprometido26Monthly.map(() => excedente26 / 12);
-  // monthlyReal conserva 2026 tal cual está en Data Comercial (sin el excedente por tendencia)
-  // — es lo que debe mostrar la tabla histórica 2015-2026, que muestra ventas REALES año por
-  // año. monthly (con el cierre26 ajustado) sigue usándose para las KPI de "Cierre estimado" y
-  // como base del forecast 2027 — ahí sí queremos la proyección, no solo lo ya cargado.
-  const monthlyReal = { ...monthly, 2026: comprometido26Monthly };
-  totals[2026] = total26;
-  monthly[2026] = cierre26;
+  // aún no existe en el archivo) se reparte proporcional a la forma estacional ya cargada del
+  // año, porque no sabemos en qué mes exacto aterrizará esa venta nueva.
+  const totalCierre = Math.max(comprometido, tendencia);
+  const excedente = totalCierre - comprometido;
+  const cierre = comprometido > 0
+    ? comprometidoMonthly.map(v => v + (v / comprometido) * excedente)
+    : comprometidoMonthly.map(() => excedente / 12);
+  // monthlyReal conserva el año de cierre tal cual está en Data Comercial (sin el excedente por
+  // tendencia) — es lo que debe mostrar la tabla histórica, que muestra ventas REALES año por
+  // año. monthly (con el cierre ajustado) sigue usándose para las KPI de "Cierre estimado" y
+  // como base del forecast del año siguiente — ahí sí queremos la proyección, no solo lo ya cargado.
+  const monthlyReal = { ...monthly, [yC]: comprometidoMonthly };
+  totals[yC] = totalCierre;
+  monthly[yC] = cierre;
 
-  // Rango conservador/optimista para 2027: crecimiento año-a-año sobre TODO el histórico
-  // (2015-2026, ya con el cierre 2026 corregido arriba).
+  // Rango conservador/optimista para el año siguiente: crecimiento año-a-año sobre TODO el
+  // histórico (ya con el cierre corregido arriba).
   const annualGrowths = [];
   for (let i = 1; i < years.length; i++) {
     const yPrev = years[i - 1], yCur = years[i];
@@ -1991,23 +2011,24 @@ function projBuildForecast(valKey) {
     monthly[y].forEach((v, i) => { seasonalIndex[i] += (v / t) / years.length; });
   });
 
-  const proj2027TotalBase = total26 * (1 + avgGrowth);
-  const proj2027TotalCons = total26 * (1 + minGrowth);
-  const proj2027TotalOpt = total26 * (1 + maxGrowth);
-  const proj2027base = seasonalIndex.map(idx => Math.max(0, proj2027TotalBase * idx));
-  const proj2027cons = seasonalIndex.map(idx => Math.max(0, proj2027TotalCons * idx));
-  const proj2027opt = seasonalIndex.map(idx => Math.max(0, proj2027TotalOpt * idx));
+  const projTotalBase = totalCierre * (1 + avgGrowth);
+  const projTotalCons = totalCierre * (1 + minGrowth);
+  const projTotalOpt = totalCierre * (1 + maxGrowth);
+  const projBase = seasonalIndex.map(idx => Math.max(0, projTotalBase * idx));
+  const projCons = seasonalIndex.map(idx => Math.max(0, projTotalCons * idx));
+  const projOpt = seasonalIndex.map(idx => Math.max(0, projTotalOpt * idx));
 
   return {
+    anioPrev: yP, anioCierre: yC, anioProx: yN,
     years, monthly, monthlyReal, totals,
-    real25: monthly[2025], cierre26, total25: totals[2025], total26,
-    comprometido26, tendencia26, excedente26,
+    realPrev: monthly[yP] || Array(12).fill(0), cierre, totalPrev: totals[yP] || 0, totalCierre,
+    comprometido, tendencia, excedente,
     avgGrowth, minGrowth, maxGrowth, annualGrowths,
-    proj2027base, proj2027cons, proj2027opt,
-    total2027base: proj2027base.reduce((a, b) => a + b, 0),
-    total2027cons: proj2027cons.reduce((a, b) => a + b, 0),
-    total2027opt: proj2027opt.reduce((a, b) => a + b, 0),
-    linReg2027: projLinearRegressionAnnualTotal(years.flatMap(y => monthly[y])),
+    projBase, projCons, projOpt,
+    totalProjBase: projBase.reduce((a, b) => a + b, 0),
+    totalProjCons: projCons.reduce((a, b) => a + b, 0),
+    totalProjOpt: projOpt.reduce((a, b) => a + b, 0),
+    linReg: projLinearRegressionAnnualTotal(years.flatMap(y => monthly[y])),
   };
 }
 
@@ -2048,40 +2069,46 @@ function renderProyeccion() {
   const vb = projBuildForecast('vb');
   const vn = projBuildForecast('vn');
   const ut = projBuildForecast('ut');
+  const yC = vb.anioCierre, yP = vb.anioPrev, yN = vb.anioProx;
+  // Los años de los títulos y textos de la pestaña salen del año de cierre (en curso).
+  document.querySelectorAll('#sec-proyeccion .proj-yc').forEach(el => { el.textContent = yC; });
+  document.querySelectorAll('#sec-proyeccion .proj-yp').forEach(el => { el.textContent = yP; });
+  document.querySelectorAll('#sec-proyeccion .proj-yn').forEach(el => { el.textContent = yN; });
+  document.querySelectorAll('#sec-proyeccion .proj-yfirst').forEach(el => { el.textContent = vb.years[0]; });
 
-  // Nota de composición: cuánto de "Cierre estimado 2026" es lo ya comprometido (cargado hoy
+  // Nota de composición: cuánto del "Cierre estimado" del año en curso es lo ya comprometido (cargado hoy
   // en Data Comercial) vs. cuánto es venta nueva esperada según la tendencia histórica de
   // crecimiento año-a-año — para que quede claro que esto SÍ es una proyección hacia adelante,
   // no solo un espejo de lo que ya está en el archivo.
   const notaEl = document.getElementById('projCierreNota');
   if (notaEl) {
-    if (vb.excedente26 > 1000) {
-      notaEl.textContent = `Ya comprometido en Data Comercial: ${fmtMoneyShort(vb.comprometido26)} · + proyección de venta nueva por tendencia histórica: ${fmtMoneyShort(vb.excedente26)} → Cierre estimado: ${fmtMoneyShort(vb.total26)}.`;
+    if (vb.excedente > 1000) {
+      notaEl.textContent = `Ya comprometido en Data Comercial: ${fmtMoneyShort(vb.comprometido)} · + proyección de venta nueva por tendencia histórica: ${fmtMoneyShort(vb.excedente)} → Cierre estimado: ${fmtMoneyShort(vb.totalCierre)}.`;
     } else {
-      notaEl.textContent = `Lo ya comprometido (${fmtMoneyShort(vb.comprometido26)}) ya iguala o supera la proyección por tendencia histórica (${fmtMoneyShort(vb.tendencia26)}) — el cierre estimado usa el comprometido como piso.`;
+      notaEl.textContent = `Lo ya comprometido (${fmtMoneyShort(vb.comprometido)}) ya iguala o supera la proyección por tendencia histórica (${fmtMoneyShort(vb.tendencia)}) — el cierre estimado usa el comprometido como piso.`;
     }
   }
 
   const fcAnual = (valKey) => {
     if (!forecastLoaded) return 0;
-    const fcNeto = Engine.forecastMonthlyFilteredArr(filters, 2026).reduce((a, b) => a + b, 0);
+    const fcNeto = Engine.forecastMonthlyFilteredArr(filters, yC).reduce((a, b) => a + b, 0);
     if (valKey === 'vn') return fcNeto;
     if (valKey === 'ut') return fcNeto * MARGEN_OBJETIVO;
-    const roiPct = Engine.roiPctParaForecastBruto(2026);
+    const roiPct = Engine.roiPctParaForecastBruto(yC);
     return roiPct < 1 ? fcNeto / (1 - roiPct) : fcNeto;
   };
 
   const buildCierreKPI = (label, obj, color, fcTotal) => {
-    const pctFc = fcTotal ? (obj.total26 / fcTotal * 100) : null;
-    const yoy = obj.total25 ? (obj.total26 - obj.total25) / obj.total25 * 100 : null;
+    const pctFc = fcTotal ? (obj.totalCierre / fcTotal * 100) : null;
+    const yoy = obj.totalPrev ? (obj.totalCierre - obj.totalPrev) / obj.totalPrev * 100 : null;
     return `
       <div class="kpi-big" style="--accent:${color}">
         <div class="kpi-big-head"><div class="kpi-big-label">${label}</div></div>
-        <div class="kpi-big-value">${fmtMoneyShort(obj.total26)}</div>
-        <svg class="kpi-big-spark" viewBox="0 0 200 36" preserveAspectRatio="none">${sparklinePath(obj.cierre26, color, 200, 36)}</svg>
+        <div class="kpi-big-value">${fmtMoneyShort(obj.totalCierre)}</div>
+        <svg class="kpi-big-spark" viewBox="0 0 200 36" preserveAspectRatio="none">${sparklinePath(obj.cierre, color, 200, 36)}</svg>
         <div class="kpi-big-compare">
           <div class="kpi-cmp"><div class="kpi-cmp-label">% del Forecast anual</div><div class="kpi-cmp-pct ${pctFc===null?'muted':pctFc>=100?'pos':pctFc>=90?'':'neg'}">${pctFc===null?'—':fmtPct(pctFc)}</div></div>
-          <div class="kpi-cmp"><div class="kpi-cmp-label">vs 2025</div><div class="kpi-cmp-pct ${yoy===null?'muted':yoy>=0?'pos':'neg'}">${yoy===null?'—':(yoy>=0?'+':'')+fmtPct(yoy)}</div></div>
+          <div class="kpi-cmp"><div class="kpi-cmp-label">vs ${yP}</div><div class="kpi-cmp-pct ${yoy===null?'muted':yoy>=0?'pos':'neg'}">${yoy===null?'—':(yoy>=0?'+':'')+fmtPct(yoy)}</div></div>
         </div>
       </div>`;
   };
@@ -2093,12 +2120,12 @@ function renderProyeccion() {
 
   const build2027KPI = (label, obj, color) => `
     <div class="kpi-big" style="--accent:${color}">
-      <div class="kpi-big-head"><div class="kpi-big-label">${label} · Forecast 2027 (base)</div></div>
-      <div class="kpi-big-value">${fmtMoneyShort(obj.total2027base)}</div>
-      <svg class="kpi-big-spark" viewBox="0 0 200 36" preserveAspectRatio="none">${sparklinePath(obj.proj2027base, color, 200, 36)}</svg>
+      <div class="kpi-big-head"><div class="kpi-big-label">${label} · Forecast ${yN} (base)</div></div>
+      <div class="kpi-big-value">${fmtMoneyShort(obj.totalProjBase)}</div>
+      <svg class="kpi-big-spark" viewBox="0 0 200 36" preserveAspectRatio="none">${sparklinePath(obj.projBase, color, 200, 36)}</svg>
       <div class="kpi-big-compare">
-        <div class="kpi-cmp"><div class="kpi-cmp-label">Conservador</div><div class="kpi-cmp-pct neg">${fmtMoneyShort(obj.total2027cons)}</div></div>
-        <div class="kpi-cmp"><div class="kpi-cmp-label">Optimista</div><div class="kpi-cmp-pct pos">${fmtMoneyShort(obj.total2027opt)}</div></div>
+        <div class="kpi-cmp"><div class="kpi-cmp-label">Conservador</div><div class="kpi-cmp-pct neg">${fmtMoneyShort(obj.totalProjCons)}</div></div>
+        <div class="kpi-cmp"><div class="kpi-cmp-label">Optimista</div><div class="kpi-cmp-pct pos">${fmtMoneyShort(obj.totalProjOpt)}</div></div>
       </div>
     </div>`;
   document.getElementById('projKpis2027').innerHTML = [
@@ -2113,9 +2140,9 @@ function renderProyeccion() {
       data: {
         labels: MESES,
         datasets: [
-          { label: '2025 Real', data: obj.real25, borderColor: '#6b7280', backgroundColor: 'transparent', tension: 0.35, borderWidth: 2, pointRadius: 3, fill: false },
-          { label: '2026 (Real + Forecast)', data: obj.cierre26, borderColor: '#d9662c', backgroundColor: 'rgba(217,102,44,0.1)', tension: 0.35, borderWidth: 3, pointRadius: 4, fill: true },
-          { label: '2027 Proyección (base)', data: obj.proj2027base, borderColor: '#7c3aed', backgroundColor: 'transparent', tension: 0.35, borderWidth: 2.5, borderDash: [6, 4], pointRadius: 3, fill: false },
+          { label: `${yP} Real`, data: obj.realPrev, borderColor: '#6b7280', backgroundColor: 'transparent', tension: 0.35, borderWidth: 2, pointRadius: 3, fill: false },
+          { label: `${yC} (Real + Forecast)`, data: obj.cierre, borderColor: '#d9662c', backgroundColor: 'rgba(217,102,44,0.1)', tension: 0.35, borderWidth: 3, pointRadius: 4, fill: true },
+          { label: `${yN} Proyección (base)`, data: obj.projBase, borderColor: '#7c3aed', backgroundColor: 'transparent', tension: 0.35, borderWidth: 2.5, borderDash: [6, 4], pointRadius: 3, fill: false },
         ],
       },
       options: lineOpts({ money: true }),
@@ -2125,8 +2152,8 @@ function renderProyeccion() {
   buildProjChart('ch-projUT', ut);
 
   const rowLinReg = (label, obj) => {
-    const diff = obj.total2027base ? (obj.linReg2027 - obj.total2027base) / obj.total2027base * 100 : 0;
-    return `<tr><td><b>${label}</b></td><td class="num">${fmtMoney(obj.total2027base)}</td><td class="num">${fmtMoney(obj.linReg2027)}</td><td class="num ${diff>=0?'pos':'neg'}">${diff>=0?'+':''}${fmtPct(diff)}</td></tr>`;
+    const diff = obj.totalProjBase ? (obj.linReg - obj.totalProjBase) / obj.totalProjBase * 100 : 0;
+    return `<tr><td><b>${label}</b></td><td class="num">${fmtMoney(obj.totalProjBase)}</td><td class="num">${fmtMoney(obj.linReg)}</td><td class="num ${diff>=0?'pos':'neg'}">${diff>=0?'+':''}${fmtPct(diff)}</td></tr>`;
   };
   document.getElementById('projLinReg').innerHTML = `
     <div class="table-wrap"><table><thead class="top"><tr><th>Métrica</th><th class="num">Método 1 · Estacional + Tendencia</th><th class="num">Método 2 · Regresión lineal</th><th class="num">Diferencia</th></tr></thead><tbody>
@@ -2136,7 +2163,7 @@ function renderProyeccion() {
     </tbody></table></div>`;
 
   const elRoi = document.getElementById('projRoiNota');
-  if (elRoi) elRoi.textContent = `Venta Neta histórica (2015-2024) estimada con el % de ROI promedio combinado 2025+2026: ${fmtPct(computeAvgROIPct() * 100)}`;
+  if (elRoi) elRoi.textContent = `Venta Neta histórica (${vb.years[0]}-2024) estimada con el % de ROI promedio combinado ${yP}+${yC}: ${fmtPct(computeAvgROIPct() * 100)}`;
 
   const elHistVB = document.getElementById('projHistBruta');
   if (elHistVB) elHistVB.innerHTML = buildHistoricalTable(vb.monthlyReal, vb.years, '#d9662c');
@@ -2571,7 +2598,7 @@ function closeRPProfile() {
 function renderProveedor() {
   const data = Engine.applyFilters(filters);
   const fact = Engine.facturable(data);
-  const yActual = parseInt(filters.anio) || 2026;
+  const yActual = parseInt(filters.anio) || new Date().getFullYear();
   const yPrev = yActual - 1;
 
   // Datos del año anterior (mismo Status OPEN filter)
@@ -2975,12 +3002,12 @@ function renderMedios() {
   html += '</tbody></table></div>';
   document.getElementById('tblMedios').innerHTML = html;
 
-  // Subcategorías: por Soporte (2026) o Medio (2025)
-  const subKey = r => `${r.cat} · ${r.anio===2026 ? (r.sop || r.med || '—') : (r.med || '—')}`;
+  // Subcategorías: por Soporte (2026 en adelante) o Medio (2025 y antes)
+  const subKey = r => `${r.cat} · ${r.anio>=2026 ? (r.sop || r.med || '—') : (r.med || '—')}`;
   const subMap = {};
   fact.forEach(r => {
     const k = subKey(r);
-    if (!subMap[k]) subMap[k] = { key:k, cat:r.cat, sub:r.anio===2026?(r.sop||r.med||'—'):(r.med||'—'), vb:0, vn:0, ut:0, n:0 };
+    if (!subMap[k]) subMap[k] = { key:k, cat:r.cat, sub:r.anio>=2026?(r.sop||r.med||'—'):(r.med||'—'), vb:0, vn:0, ut:0, n:0 };
     subMap[k].vb += r.vb; subMap[k].vn += r.vn; subMap[k].ut += r.ut; subMap[k].n++;
   });
   const sub = Object.values(subMap).map(s=>({...s, margen:s.vn?s.ut/s.vn*100:0})).sort((a,b)=>b.vb-a.vb);
@@ -3017,8 +3044,8 @@ function renderClientes() {
   });
 
   const prevMapCli = groupByPrev('cli');
-  const yActualCli = parseInt(filters.anio) || (Engine.yearsAvailable.length ? Math.max(...Engine.yearsAvailable) : 2026);
-  const showFCCli = forecastLoaded && yActualCli === 2026;
+  const yActualCli = parseInt(filters.anio) || (Engine.yearsAvailable.length ? Math.max(...Engine.yearsAvailable) : new Date().getFullYear());
+  const showFCCli = forecastLoaded && Engine.hasForecast(yActualCli);
   let html = '<div class="table-wrap"><table class="table-default"><thead class="top"><tr><th>Cliente</th><th>Holding</th><th class="num">V. Bruta</th><th class="num">V. Neta</th><th class="num">Utilidad</th><th class="num">Margen %</th><th class="num">% Total</th><th class="num">vs Forecast</th><th class="num">V. Neta Año Ant.</th><th class="num">YoY %</th></tr></thead><tbody>';
   grp.forEach(g => {
     const p = total?g.vb/total*100:0;
@@ -3056,8 +3083,8 @@ function renderHoldings() {
   drawChart('ch-holNeta', { type:'bar', data:{ labels: top.map(g=>g.key), datasets:[{label:'V. Neta', data:top.map(g=>g.vn), backgroundColor:'#2563eb', borderRadius:4}]}, options: barOpts({money:true, horizontal:true}) });
   drawChart('ch-holMargen', { type:'bar', data:{ labels: top.map(g=>g.key), datasets:[{label:'Margen %', data:top.map(g=>g.margen), backgroundColor: top.map(g=>g.margen>=30?'#1f9d6e':g.margen>=15?'#b45309':'#dc4747'), borderRadius:4}]}, options: barOpts({pct:true, horizontal:true}) });
 
-  const yActualHol = parseInt(filters.anio) || (Engine.yearsAvailable.length ? Math.max(...Engine.yearsAvailable) : 2026);
-  const showFCHol = forecastLoaded && yActualHol === 2026;
+  const yActualHol = parseInt(filters.anio) || (Engine.yearsAvailable.length ? Math.max(...Engine.yearsAvailable) : new Date().getFullYear());
+  const showFCHol = forecastLoaded && Engine.hasForecast(yActualHol);
 
   const prevMapHol = groupByPrev('hol');
   const roiMapHol = {};
@@ -3588,7 +3615,7 @@ const AI_TOOLS = [
     input_schema: {
       type: 'object',
       properties: {
-        anio: { type: 'integer', description: 'Año del forecast (normalmente 2026)' },
+        anio: { type: 'integer', description: 'Año del forecast (el archivo trae una pestaña por año, p. ej. 2026 y 2027)' },
         eje: { type: 'string', description: 'Opcional: nombre exacto de un vendedor para acotar' },
         cli: { type: 'string', description: 'Opcional: nombre exacto de un cliente para acotar' },
         groupBy: { type: 'string', enum: ['eje', 'cli', 'mes', 'none'], description: 'Cómo agrupar: por vendedor, por cliente, por mes, o "none" para un solo total' },

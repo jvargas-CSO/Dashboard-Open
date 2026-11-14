@@ -504,11 +504,16 @@ function processDataWorkbook(workbook) {
 // =========================================================================
 // Procesar Excel de Forecast (vendedor + cliente + 12 meses)
 // =========================================================================
-function processForecastWorkbook(workbook, year=2026) {
+// El año de cada renglón sale del NOMBRE de su pestaña ("2026", "2027", "Forecast 2027"…): así
+// un mismo archivo puede traer varios años a la vez y cada uno conserva su propio forecast.
+// Una pestaña sin año en el nombre se toma como defaultYear (compatibilidad con archivos viejos).
+function processForecastWorkbook(workbook, defaultYear=2026) {
   const records = [];
   const warnings = [];
   const meses = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
   workbook.SheetNames.forEach(sheetName => {
+    const ym = String(sheetName).match(/(?:^|\D)(20\d{2})(?:\D|$)/);
+    const year = ym ? parseInt(ym[1]) : defaultYear;
     const sheet = workbook.Sheets[sheetName];
     const rows = XLSX.utils.sheet_to_json(sheet, { defval: null });
     rows.forEach(r => {
@@ -526,7 +531,7 @@ function processForecastWorkbook(workbook, year=2026) {
         // detecta aquí y se reporta como warning en vez de dejarlo pasar como si no hubiera
         // forecast ese mes.
         if (v === 0 && raw != null && raw !== '' && typeof raw !== 'number' && !/^\s*0(\.0+)?\s*$/.test(String(raw))) {
-          warnings.push(`${eje} · ${cli} · ${mes}: valor no numérico "${raw}"`);
+          warnings.push(`${year} · ${eje} · ${cli} · ${mes}: valor no numérico "${raw}"`);
         }
         if (v > 0) records.push({
           anio: year,
@@ -1082,9 +1087,19 @@ const Engine = {
     });
   },
   // Vendedores "activos" en 2026 = los que tienen forecast 2026 cargado
+  // Años con forecast cargado, y vendedores activos = los que aparecen en el forecast del año
+  // en curso o de años posteriores (así en 2027 dejan de salir los que ya no están en el equipo,
+  // pero antes del 1 de enero ya aparecen los ejecutivos nuevos). Si el forecast solo trae años
+  // pasados, se usa el más reciente.
   _computeActiveSellers() {
-    const sellers = new Set(this.forecast.filter(f => f.anio === 2026).map(f => f.eje));
-    this.activeSellers2026 = sellers;
+    this.forecastYears = [...new Set(this.forecast.map(f => f.anio))].sort((a, b) => a - b);
+    const cy = new Date().getFullYear();
+    let desde = cy;
+    if (this.forecastYears.length && this.forecastYears[this.forecastYears.length - 1] < cy) desde = this.forecastYears[this.forecastYears.length - 1];
+    this.activeSellers = new Set(this.forecast.filter(f => f.anio >= desde).map(f => f.eje));
+  },
+  hasForecast(anio) {
+    return !!(this.forecastYears && this.forecastYears.includes(+anio));
   },
   // Valores únicos de Status OPEN encontrados en los datos
   _computeStatusValues() {
@@ -1097,10 +1112,10 @@ const Engine = {
     arr.filter(x => !preferred.includes(x)).sort().forEach(x => ord.push(x));
     this.statusOpenValues = ord;
   },
-  isActive2026(eje) {
-    return !this.activeSellers2026 || this.activeSellers2026.size === 0
+  isActive(eje) {
+    return !this.activeSellers || this.activeSellers.size === 0
       ? true  // si no hay forecast cargado, todos cuentan
-      : this.activeSellers2026.has(eje);
+      : this.activeSellers.has(eje);
   },
   _computeRoiPromedio() {
     // ROI promedio por año = Total ROIs / Venta Bruta (solo facturable + Suma Forecast)
@@ -1276,9 +1291,9 @@ const Engine = {
     });
     return arr;
   },
-  // Vendedores activos en 2026 (con forecast)
-  vendedoresActivos2026() {
-    return this.activeSellers2026 ? [...this.activeSellers2026].sort() : [];
+  // Vendedores activos (con forecast del año en curso o posterior)
+  vendedoresActivos() {
+    return this.activeSellers ? [...this.activeSellers].sort() : [];
   },
 };
 

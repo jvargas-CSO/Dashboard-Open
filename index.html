@@ -1050,7 +1050,7 @@ tbody tr:hover { background: var(--bg-card-hover); }
       <div class="card-header">
         <div class="card-title">📅 Detalle Mensual</div>
         <div class="filter-group" style="width:240px">
-          <label>Vendedor (activos 2026)</label>
+          <label>Vendedor (activos)</label>
           <select id="acVendedorSel"><option value="">Todos</option></select>
         </div>
       </div>
@@ -1119,11 +1119,11 @@ tbody tr:hover { background: var(--bg-card-hover); }
         <div id="desempenoCuenta"></div>
       </div>
       <div class="card full mobile-hide">
-        <div class="card-header"><div class="card-title">📅 Estacionalidad por vendedor</div><div class="card-meta">Comparativo 2026 vs 2025</div></div>
+        <div class="card-header"><div class="card-title">📅 Estacionalidad por vendedor</div><div class="card-meta">Comparativo <span class="y-sel">2026</span> vs <span class="y-prev">2025</span></div></div>
         <div id="estacionalidadVendedor"></div>
       </div>
       <div class="card full mobile-hide">
-        <div class="card-header"><div class="card-title">📅 Estacionalidad por categoría</div><div class="card-meta">Comparativo 2026 vs 2025</div></div>
+        <div class="card-header"><div class="card-title">📅 Estacionalidad por categoría</div><div class="card-meta">Comparativo <span class="y-sel">2026</span> vs <span class="y-prev">2025</span></div></div>
         <div id="estacionalidadMedio"></div>
       </div>
       <div class="card full mobile-hide">
@@ -1138,25 +1138,25 @@ tbody tr:hover { background: var(--bg-card-hover); }
   </section>
 
   <section class="section" id="sec-proyeccion">
-    <div class="alert info">📈 <b>Estimación estadística</b>, no un compromiso comercial. El cierre 2026 = lo ya comprometido en Data Comercial + una proyección de venta nueva esperada según la tendencia histórica de crecimiento año-a-año (2015-2025), aplicada sobre el real de 2025. El 2027 se proyecta con descomposición estacional + tendencia sobre el histórico completo 2015-2026. Se muestra un segundo método (regresión lineal) como contraste.</div>
-    <div class="alert mobile-only-note">🖥️ El contraste de métodos y las tablas históricas 2015-2026 solo están disponibles en computadora o tablet.</div>
+    <div class="alert info">📈 <b>Estimación estadística</b>, no un compromiso comercial. El cierre <span class="proj-yc">2026</span> = lo ya comprometido en Data Comercial + una proyección de venta nueva esperada según la tendencia histórica de crecimiento año-a-año (<span class="proj-yfirst">2015</span>-<span class="proj-yp">2025</span>), aplicada sobre el real de <span class="proj-yp">2025</span>. El <span class="proj-yn">2027</span> se proyecta con descomposición estacional + tendencia sobre el histórico completo <span class="proj-yfirst">2015</span>-<span class="proj-yc">2026</span>. Se muestra un segundo método (regresión lineal) como contraste.</div>
+    <div class="alert mobile-only-note">🖥️ El contraste de métodos y las tablas históricas <span class="proj-yfirst">2015</span>-<span class="proj-yc">2026</span> solo están disponibles en computadora o tablet.</div>
     <div class="section-header">
-      <div class="section-title">Cierre estimado 2026</div>
+      <div class="section-title">Cierre estimado <span class="proj-yc">2026</span></div>
       <div class="section-subtitle" id="projCierreNota">Lo ya comprometido + proyección de venta nueva esperada según tendencia histórica</div>
     </div>
     <div class="kpi-grid kpi-grid-big" id="projKpisCierre"></div>
     <div class="cards-grid">
       <div class="card full">
-        <div class="card-header"><div class="card-title">Venta Bruta mensual · 2025 vs 2026 (real+forecast) vs Proyección 2027</div></div>
+        <div class="card-header"><div class="card-title">Venta Bruta mensual · <span class="proj-yp">2025</span> vs <span class="proj-yc">2026</span> (real+forecast) vs Proyección <span class="proj-yn">2027</span></div></div>
         <div class="chart-container"><canvas id="ch-projVB"></canvas></div>
       </div>
       <div class="card full">
-        <div class="card-header"><div class="card-title">Utilidad mensual · 2025 vs 2026 (real+forecast) vs Proyección 2027</div></div>
+        <div class="card-header"><div class="card-title">Utilidad mensual · <span class="proj-yp">2025</span> vs <span class="proj-yc">2026</span> (real+forecast) vs Proyección <span class="proj-yn">2027</span></div></div>
         <div class="chart-container"><canvas id="ch-projUT"></canvas></div>
       </div>
     </div>
     <div class="section-header" style="margin-top:8px">
-      <div class="section-title">Forecast 2027</div>
+      <div class="section-title">Forecast <span class="proj-yn">2027</span></div>
       <div class="section-subtitle">Rango conservador–optimista basado en la variabilidad de crecimiento mensual observada</div>
     </div>
     <div class="kpi-grid kpi-grid-big" id="projKpis2027"></div>
@@ -1167,15 +1167,15 @@ tbody tr:hover { background: var(--bg-card-hover); }
       </div>
 
       <div class="section-header" style="margin-top:24px">
-        <div class="section-title">Histórico 2015-2026</div>
+        <div class="section-title">Histórico <span class="proj-yfirst">2015</span>-<span class="proj-yc">2026</span></div>
         <div class="section-subtitle" id="projRoiNota">Venta Bruta reportada por año y Venta Neta estimada — base del cálculo de crecimiento y estacionalidad de arriba</div>
       </div>
       <div class="card full" style="margin-top:14px">
-        <div class="card-header"><div class="card-title">Venta Bruta mensual · 2015-2026</div><div class="card-meta">Color = intensidad vs el mes de mayor venta del histórico. Hover para ver detalle y YoY</div></div>
+        <div class="card-header"><div class="card-title">Venta Bruta mensual · <span class="proj-yfirst">2015</span>-<span class="proj-yc">2026</span></div><div class="card-meta">Color = intensidad vs el mes de mayor venta del histórico. Hover para ver detalle y YoY</div></div>
         <div id="projHistBruta"></div>
       </div>
       <div class="card full" style="margin-top:14px">
-        <div class="card-header"><div class="card-title">Venta Neta mensual · 2015-2026</div><div class="card-meta">2015-2024 estimada con el % de ROI promedio combinado 2025+2026. Hover para ver detalle y YoY</div></div>
+        <div class="card-header"><div class="card-title">Venta Neta mensual · <span class="proj-yfirst">2015</span>-<span class="proj-yc">2026</span></div><div class="card-meta"><span class="proj-yfirst">2015</span>-2024 estimada con el % de ROI promedio combinado <span class="proj-yp">2025</span>+<span class="proj-yc">2026</span>. Hover para ver detalle y YoY</div></div>
         <div id="projHistNeta"></div>
       </div>
     </div>
@@ -1187,7 +1187,7 @@ tbody tr:hover { background: var(--bg-card-hover); }
 
     <!-- Insights automáticos -->
     <div class="card full" style="margin-top:14px" id="cardProvInsights">
-      <div class="card-header"><div class="card-title">💡 Insights automáticos</div><div class="card-meta">Cambios vs 2025 que merecen atención</div></div>
+      <div class="card-header"><div class="card-title">💡 Insights automáticos</div><div class="card-meta">Cambios vs <span class="y-prev">2025</span> que merecen atención</div></div>
       <div id="provInsights"></div>
     </div>
 
@@ -1233,26 +1233,26 @@ tbody tr:hover { background: var(--bg-card-hover); }
     </div>
 
     <div class="card full" style="margin-top:14px">
-      <div class="card-header"><div class="card-title">🆕 Proveedores nuevos en 2026 / Perdidos de 2025</div></div>
+      <div class="card-header"><div class="card-title">🆕 Proveedores nuevos en <span class="y-sel">2026</span> / Perdidos de <span class="y-prev">2025</span></div></div>
       <div class="cards-grid" style="grid-template-columns:1fr 1fr">
-        <div><h4 style="margin-bottom:8px;color:var(--success)">Nuevos en 2026</h4><div id="tblProvNuevos"></div></div>
-        <div><h4 style="margin-bottom:8px;color:var(--danger)">Perdidos (estaban en 2025, no en 2026)</h4><div id="tblProvPerdidos"></div></div>
+        <div><h4 style="margin-bottom:8px;color:var(--success)">Nuevos en <span class="y-sel">2026</span></h4><div id="tblProvNuevos"></div></div>
+        <div><h4 style="margin-bottom:8px;color:var(--danger)">Perdidos (estaban en <span class="y-prev">2025</span>, no en <span class="y-sel">2026</span>)</h4><div id="tblProvPerdidos"></div></div>
       </div>
     </div>
 
     <div class="card full" style="margin-top:14px">
-      <div class="card-header"><div class="card-title">Cruce Proveedor × Categoría</div><div class="card-meta">Hover para ver 2025 y diff</div></div>
+      <div class="card-header"><div class="card-title">Cruce Proveedor × Categoría</div><div class="card-meta">Hover para ver <span class="y-prev">2025</span> y diff</div></div>
       <div id="tblProvCategoria"></div>
     </div>
 
     <div class="card full" style="margin-top:14px">
-      <div class="card-header"><div class="card-title">Cruce Proveedor × Vendedor</div><div class="card-meta">Hover para ver 2025 y diff</div></div>
+      <div class="card-header"><div class="card-title">Cruce Proveedor × Vendedor</div><div class="card-meta">Hover para ver <span class="y-prev">2025</span> y diff</div></div>
       <div id="tblProvVendedor"></div>
     </div>
   </section>
 
   <section class="section" id="sec-medios">
-    <div class="alert info">🎬 Mix consolidado por categoría usando Soporte 2026 + Medio 2025 mapeados a categorías comunes. Tabla con comparativo 2025.</div>
+    <div class="alert info">🎬 Mix consolidado por categoría usando Soporte (2026 en adelante) + Medio (2025 y antes) mapeados a categorías comunes. Tabla con comparativo <span class="y-prev">2025</span>.</div>
     <div class="cards-grid">
       <div class="card">
         <div class="card-header"><div class="card-title">Venta Bruta por categoría</div></div>
@@ -1276,7 +1276,7 @@ tbody tr:hover { background: var(--bg-card-hover); }
       <div id="tblMedios"></div>
     </div>
     <div class="card full" style="margin-top:14px">
-      <div class="card-header"><div class="card-title">Detalle por subcategoría (Soporte 2026 / Medio 2025)</div></div>
+      <div class="card-header"><div class="card-title">Detalle por subcategoría (Soporte desde 2026 / Medio hasta 2025)</div></div>
       <div id="tblSubMedios"></div>
     </div>
   </section>
