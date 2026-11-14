@@ -2095,103 +2095,17 @@ function buildHistoricalTable(monthlyByYear, years, colorHex) {
   return html;
 }
 
-function renderProyeccion() {
+// Etiquetas de año de la pestaña Proyección + histórico 2015-año en curso. La proyección en sí
+// (cierre, proyección del año siguiente vs forecast, supuestos y eventos) vive en proyeccion.js.
+function renderProyeccionLegacy() {
   const vb = projBuildForecast('vb');
   const vn = projBuildForecast('vn');
-  const ut = projBuildForecast('ut');
   const yC = vb.anioCierre, yP = vb.anioPrev, yN = vb.anioProx;
-  // Los años de los títulos y textos de la pestaña salen del año de cierre (en curso).
   document.querySelectorAll('#sec-proyeccion .proj-yc').forEach(el => { el.textContent = yC; });
   document.querySelectorAll('#sec-proyeccion .proj-yp').forEach(el => { el.textContent = yP; });
   document.querySelectorAll('#sec-proyeccion .proj-yn').forEach(el => { el.textContent = yN; });
   document.querySelectorAll('#sec-proyeccion .proj-yfirst').forEach(el => { el.textContent = vb.years[0]; });
   document.querySelectorAll('#sec-proyeccion .proj-ymanual').forEach(el => { el.textContent = vb.anioManualFin; });
-
-  // Nota de composición: cuánto del "Cierre estimado" del año en curso es lo ya comprometido (cargado hoy
-  // en Data Comercial) vs. cuánto es venta nueva esperada según la tendencia histórica de
-  // crecimiento año-a-año — para que quede claro que esto SÍ es una proyección hacia adelante,
-  // no solo un espejo de lo que ya está en el archivo.
-  const notaEl = document.getElementById('projCierreNota');
-  if (notaEl) {
-    if (vb.excedente > 1000) {
-      notaEl.textContent = `Ya comprometido en Data Comercial: ${fmtMoneyShort(vb.comprometido)} · + proyección de venta nueva por tendencia histórica: ${fmtMoneyShort(vb.excedente)} → Cierre estimado: ${fmtMoneyShort(vb.totalCierre)}.`;
-    } else {
-      notaEl.textContent = `Lo ya comprometido (${fmtMoneyShort(vb.comprometido)}) ya iguala o supera la proyección por tendencia histórica (${fmtMoneyShort(vb.tendencia)}) — el cierre estimado usa el comprometido como piso.`;
-    }
-  }
-
-  const fcAnual = (valKey) => {
-    if (!forecastLoaded) return 0;
-    const fcNeto = Engine.forecastMonthlyFilteredArr(filters, yC).reduce((a, b) => a + b, 0);
-    if (valKey === 'vn') return fcNeto;
-    if (valKey === 'ut') return fcNeto * MARGEN_OBJETIVO;
-    const roiPct = Engine.roiPctParaForecastBruto(yC);
-    return roiPct < 1 ? fcNeto / (1 - roiPct) : fcNeto;
-  };
-
-  const buildCierreKPI = (label, obj, color, fcTotal) => {
-    const pctFc = fcTotal ? (obj.totalCierre / fcTotal * 100) : null;
-    const yoy = obj.totalPrev ? (obj.totalCierre - obj.totalPrev) / obj.totalPrev * 100 : null;
-    return `
-      <div class="kpi-big" style="--accent:${color}">
-        <div class="kpi-big-head"><div class="kpi-big-label">${label}</div></div>
-        <div class="kpi-big-value">${fmtMoneyShort(obj.totalCierre)}</div>
-        <svg class="kpi-big-spark" viewBox="0 0 200 36" preserveAspectRatio="none">${sparklinePath(obj.cierre, color, 200, 36)}</svg>
-        <div class="kpi-big-compare">
-          <div class="kpi-cmp"><div class="kpi-cmp-label">% del Forecast anual</div><div class="kpi-cmp-pct ${pctFc===null?'muted':pctFc>=100?'pos':pctFc>=90?'':'neg'}">${pctFc===null?'—':fmtPct(pctFc)}</div></div>
-          <div class="kpi-cmp"><div class="kpi-cmp-label">vs ${yP}</div><div class="kpi-cmp-pct ${yoy===null?'muted':yoy>=0?'pos':'neg'}">${yoy===null?'—':(yoy>=0?'+':'')+fmtPct(yoy)}</div></div>
-        </div>
-      </div>`;
-  };
-  document.getElementById('projKpisCierre').innerHTML = [
-    buildCierreKPI('Venta Bruta', vb, '#d9662c', fcAnual('vb')),
-    buildCierreKPI('Venta Neta', vn, '#2563eb', fcAnual('vn')),
-    buildCierreKPI('Utilidad', ut, '#1f9d6e', fcAnual('ut')),
-  ].join('');
-
-  const build2027KPI = (label, obj, color) => `
-    <div class="kpi-big" style="--accent:${color}">
-      <div class="kpi-big-head"><div class="kpi-big-label">${label} · Forecast ${yN} (base)</div></div>
-      <div class="kpi-big-value">${fmtMoneyShort(obj.totalProjBase)}</div>
-      <svg class="kpi-big-spark" viewBox="0 0 200 36" preserveAspectRatio="none">${sparklinePath(obj.projBase, color, 200, 36)}</svg>
-      <div class="kpi-big-compare">
-        <div class="kpi-cmp"><div class="kpi-cmp-label">Conservador</div><div class="kpi-cmp-pct neg">${fmtMoneyShort(obj.totalProjCons)}</div></div>
-        <div class="kpi-cmp"><div class="kpi-cmp-label">Optimista</div><div class="kpi-cmp-pct pos">${fmtMoneyShort(obj.totalProjOpt)}</div></div>
-      </div>
-    </div>`;
-  document.getElementById('projKpis2027').innerHTML = [
-    build2027KPI('Venta Bruta', vb, '#d9662c'),
-    build2027KPI('Venta Neta', vn, '#2563eb'),
-    build2027KPI('Utilidad', ut, '#1f9d6e'),
-  ].join('');
-
-  const buildProjChart = (canvasId, obj) => {
-    drawChart(canvasId, {
-      type: 'line',
-      data: {
-        labels: MESES,
-        datasets: [
-          { label: `${yP} Real`, data: obj.realPrev, borderColor: '#6b7280', backgroundColor: 'transparent', tension: 0.35, borderWidth: 2, pointRadius: 3, fill: false },
-          { label: `${yC} (Real + Forecast)`, data: obj.cierre, borderColor: '#d9662c', backgroundColor: 'rgba(217,102,44,0.1)', tension: 0.35, borderWidth: 3, pointRadius: 4, fill: true },
-          { label: `${yN} Proyección (base)`, data: obj.projBase, borderColor: '#7c3aed', backgroundColor: 'transparent', tension: 0.35, borderWidth: 2.5, borderDash: [6, 4], pointRadius: 3, fill: false },
-        ],
-      },
-      options: lineOpts({ money: true }),
-    });
-  };
-  buildProjChart('ch-projVB', vb);
-  buildProjChart('ch-projUT', ut);
-
-  const rowLinReg = (label, obj) => {
-    const diff = obj.totalProjBase ? (obj.linReg - obj.totalProjBase) / obj.totalProjBase * 100 : 0;
-    return `<tr><td><b>${label}</b></td><td class="num">${fmtMoney(obj.totalProjBase)}</td><td class="num">${fmtMoney(obj.linReg)}</td><td class="num ${diff>=0?'pos':'neg'}">${diff>=0?'+':''}${fmtPct(diff)}</td></tr>`;
-  };
-  document.getElementById('projLinReg').innerHTML = `
-    <div class="table-wrap"><table><thead class="top"><tr><th>Métrica</th><th class="num">Método 1 · Estacional + Tendencia</th><th class="num">Método 2 · Regresión lineal</th><th class="num">Diferencia</th></tr></thead><tbody>
-      ${rowLinReg('Venta Bruta', vb)}
-      ${rowLinReg('Venta Neta', vn)}
-      ${rowLinReg('Utilidad', ut)}
-    </tbody></table></div>`;
 
   const elRoi = document.getElementById('projRoiNota');
   if (elRoi) elRoi.textContent = `Venta Neta histórica (${vb.years[0]}-${vb.anioManualFin}) estimada con el % de ROI promedio combinado ${yP}+${yC}: ${fmtPct(computeAvgROIPct() * 100)}`;

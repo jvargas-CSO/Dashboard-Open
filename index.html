@@ -641,6 +641,46 @@ main.content { padding: 20px 24px; flex: 1; }
 .kpi-cmp-diff.pos { color: var(--success); opacity: 0.85; }
 .kpi-cmp-diff.neg { color: var(--danger); opacity: 0.85; }
 
+
+/* PROYECCIÓN — supuestos y eventos */
+.px-toolbar { padding: 12px 16px; }
+.px-bar { display: flex; flex-wrap: wrap; gap: 10px 22px; align-items: flex-end; }
+.px-field { display: flex; flex-direction: column; gap: 4px; }
+.px-grow { flex: 1 1 200px; }
+.px-lbl { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); font-weight: 700; }
+.px-hint { font-size: 11px; color: var(--text-muted); line-height: 1.35; }
+.px-seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.px-seg button { border: 0; background: var(--bg-card); padding: 7px 13px; font: inherit; font-size: 12px; color: var(--text-muted); cursor: pointer; }
+.px-seg button + button { border-left: 1px solid var(--border); }
+.px-seg button.on { background: var(--primary); color: #fff; font-weight: 700; }
+.px-in { width: 120px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-card); color: var(--text); font: inherit; font-size: 12.5px; }
+.px-in.sm { width: 72px; }
+.px-btn { border: 1px solid var(--border); background: var(--bg-card); color: var(--text-muted); padding: 7px 12px; border-radius: 8px; font: inherit; font-size: 12px; cursor: pointer; }
+.px-btn:hover { color: var(--primary); border-color: var(--primary); }
+.px-events { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 12px; }
+.px-ev { border: 1px solid var(--border-soft); border-radius: 12px; padding: 12px 14px; background: var(--bg-card); display: flex; flex-direction: column; gap: 8px; }
+.px-ev.off .px-ev-b, .px-ev.off .px-ev-note { opacity: 0.45; pointer-events: none; }
+.px-ev-h { display: flex; align-items: center; gap: 10px; }
+.px-ev-t { font-weight: 700; font-size: 13px; flex: 1; }
+.px-ev-imp { font-weight: 800; font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.px-ev-b { display: flex; flex-direction: column; gap: 6px; }
+.px-row { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.px-row > span:first-child { flex: 1; color: var(--text-muted); }
+.px-row input[type=range] { width: 120px; }
+.px-row .px-val { width: 44px; text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+.px-ev-note { font-size: 11px; color: var(--text-muted); line-height: 1.4; }
+.px-sw { position: relative; display: inline-block; width: 34px; height: 19px; flex: none; }
+.px-sw input { opacity: 0; width: 0; height: 0; }
+.px-sw span { position: absolute; inset: 0; background: var(--border); border-radius: 19px; cursor: pointer; transition: background .15s; }
+.px-sw span::before { content: ''; position: absolute; width: 15px; height: 15px; left: 2px; top: 2px; background: #fff; border-radius: 50%; transition: transform .15s; box-shadow: 0 1px 2px rgba(0,0,0,.25); }
+.px-sw input:checked + span { background: var(--primary); }
+.px-sw input:checked + span::before { transform: translateX(15px); }
+.px-chk { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.px-tag { display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 10px; background: var(--bg); border: 1px solid var(--border); color: var(--text-muted); margin-left: 4px; }
+.px-puente td.sub { padding-left: 26px; color: var(--text-muted); }
+.px-puente tr.tot td { font-weight: 800; border-top: 2px solid var(--border); }
+.px-puente tr.mid td { font-weight: 700; background: rgba(20,18,14,0.035); }
+
 /* CARDS */
 .cards-grid {
   display: grid;
@@ -1138,37 +1178,78 @@ tbody tr:hover { background: var(--bg-card-hover); }
   </section>
 
   <section class="section" id="sec-proyeccion">
-    <div class="alert info">📈 <b>Estimación estadística</b>, no un compromiso comercial. El cierre <span class="proj-yc">2026</span> = lo ya comprometido en Data Comercial + una proyección de venta nueva esperada según la tendencia histórica de crecimiento año-a-año (<span class="proj-yfirst">2015</span>-<span class="proj-yp">2025</span>), aplicada sobre el real de <span class="proj-yp">2025</span>. El <span class="proj-yn">2027</span> se proyecta con descomposición estacional + tendencia sobre el histórico completo <span class="proj-yfirst">2015</span>-<span class="proj-yc">2026</span>. Se muestra un segundo método (regresión lineal) como contraste.</div>
-    <div class="alert mobile-only-note">🖥️ El contraste de métodos y las tablas históricas <span class="proj-yfirst">2015</span>-<span class="proj-yc">2026</span> solo están disponibles en computadora o tablet.</div>
-    <div class="section-header">
-      <div class="section-title">Cierre estimado <span class="proj-yc">2026</span></div>
-      <div class="section-subtitle" id="projCierreNota">Lo ya comprometido + proyección de venta nueva esperada según tendencia histórica</div>
+    <div class="alert info">📈 <b>Proyección con supuestos que tú controlas.</b> Arriba: cómo va a <b>cerrar <span class="proj-yc">2026</span></b> (real a la fecha + lo ya comprometido + venta nueva esperada, contra el forecast). Abajo: la <b>proyección <span class="proj-yn">2027</span> comparada con el forecast del equipo</b>, con interruptores para activar o apagar los eventos que la mueven (elecciones, Mundial, salidas de ejecutivos, holdings, cuentas clave…). Es una estimación estadística, no un compromiso comercial; los supuestos se guardan en este navegador.</div>
+
+    <div class="card full px-toolbar">
+      <div class="px-bar">
+        <div class="px-field"><span class="px-lbl">Métrica</span>
+          <div class="px-seg" id="pxMetrica">
+            <button type="button" data-m="vn">Venta neta</button>
+            <button type="button" data-m="vb">Venta bruta</button>
+            <button type="button" data-m="ut">Utilidad</button>
+          </div>
+        </div>
+        <div class="px-field"><span class="px-lbl">Meta <span class="proj-yc">2026</span> (venta neta, $M)</span><input type="number" step="0.1" class="px-in" id="pxMetaC" placeholder="opcional"></div>
+        <div class="px-field"><span class="px-lbl">Meta <span class="proj-yn">2027</span> (venta neta, $M)</span><input type="number" step="0.1" class="px-in" id="pxMetaP" placeholder="opcional"></div>
+        <div class="px-field px-grow"><span class="px-hint" id="pxFiltrosNota"></span></div>
+        <button type="button" class="px-btn" id="pxReset">↺ Restablecer supuestos</button>
+      </div>
     </div>
-    <div class="kpi-grid kpi-grid-big" id="projKpisCierre"></div>
+
+    <div class="section-header" style="margin-top:14px">
+      <div class="section-title">1 · Cierre <span class="proj-yc">2026</span></div>
+      <div class="section-subtitle" id="pxCierreNota"></div>
+    </div>
+    <div class="kpi-grid kpi-grid-big" id="pxKpisCierre"></div>
     <div class="cards-grid">
       <div class="card full">
-        <div class="card-header"><div class="card-title">Venta Bruta mensual · <span class="proj-yp">2025</span> vs <span class="proj-yc">2026</span> (real+forecast) vs Proyección <span class="proj-yn">2027</span></div></div>
-        <div class="chart-container"><canvas id="ch-projVB"></canvas></div>
+        <div class="card-header"><div class="card-title">Cierre mensual <span class="proj-yc">2026</span>: real, comprometido y venta nueva esperada</div><div class="card-meta" id="pxCierreMeta"></div></div>
+        <div class="chart-container tall"><canvas id="ch-pxCierre"></canvas></div>
       </div>
       <div class="card full">
-        <div class="card-header"><div class="card-title">Utilidad mensual · <span class="proj-yp">2025</span> vs <span class="proj-yc">2026</span> (real+forecast) vs Proyección <span class="proj-yn">2027</span></div></div>
-        <div class="chart-container"><canvas id="ch-projUT"></canvas></div>
+        <div class="card-header"><div class="card-title">🔬 Cómo se estima el cierre</div><div class="card-meta">Se promedian los métodos B y C, con piso en lo ya comprometido (A)</div></div>
+        <div id="pxCierreMetodos"></div>
       </div>
     </div>
-    <div class="section-header" style="margin-top:8px">
-      <div class="section-title">Forecast <span class="proj-yn">2027</span></div>
-      <div class="section-subtitle">Rango conservador–optimista basado en la variabilidad de crecimiento mensual observada</div>
-    </div>
-    <div class="kpi-grid kpi-grid-big" id="projKpis2027"></div>
-    <div class="mobile-hide">
-      <div class="card full" style="margin-top:14px">
-        <div class="card-header"><div class="card-title">🔬 Contraste de métodos</div><div class="card-meta">Método 1 (estacional + tendencia) vs Método 2 (regresión lineal simple)</div></div>
-        <div id="projLinReg"></div>
-      </div>
 
+    <div class="section-header" style="margin-top:22px">
+      <div class="section-title">2 · Proyección <span class="proj-yn">2027</span> vs Forecast</div>
+      <div class="section-subtitle" id="pxProxNota"></div>
+    </div>
+    <div class="kpi-grid kpi-grid-big" id="pxKpisProx"></div>
+
+    <div class="card full" style="margin-top:4px">
+      <div class="card-header"><div class="card-title">🎛️ Supuestos y eventos <span class="proj-yn">2027</span></div><div class="card-meta">Cada bloque tiene su interruptor. El impacto aparece en cada tarjeta y en el puente de abajo</div></div>
+      <div id="pxPanel"></div>
+    </div>
+
+    <div class="cards-grid">
+      <div class="card full">
+        <div class="card-header"><div class="card-title">Proyección mensual <span class="proj-yn">2027</span> vs Forecast</div><div class="card-meta" id="pxProxMeta"></div></div>
+        <div class="chart-container tall"><canvas id="ch-pxProx"></canvas></div>
+      </div>
+      <div class="card full">
+        <div class="card-header"><div class="card-title">🧮 De dónde sale la proyección</div><div class="card-meta">Del cierre <span class="proj-yc">2026</span> a la proyección <span class="proj-yn">2027</span>, paso por paso</div></div>
+        <div id="pxPuente"></div>
+      </div>
+      <div class="card full">
+        <div class="card-header"><div class="card-title">Por vendedor · proyección vs forecast</div><div class="card-meta">Cuentas actuales; el nuevo negocio va en su propio renglón</div></div>
+        <div id="pxTblEje"></div>
+      </div>
+      <div class="card full">
+        <div class="card-header"><div class="card-title">Por cliente · proyección vs forecast</div><div class="card-meta">Los 15 con mayor monto; ordenados por el mayor entre proyección y forecast</div></div>
+        <div id="pxTblCli"></div>
+      </div>
+      <div class="card full">
+        <div class="card-header"><div class="card-title">🔬 Contraste de métodos <span class="proj-yn">2027</span></div><div class="card-meta">Todos sin eventos, salvo donde se indica</div></div>
+        <div id="pxMetodos27"></div>
+      </div>
+    </div>
+
+    <div class="mobile-hide">
       <div class="section-header" style="margin-top:24px">
         <div class="section-title">Histórico <span class="proj-yfirst">2015</span>-<span class="proj-yc">2026</span></div>
-        <div class="section-subtitle" id="projRoiNota">Venta Bruta reportada por año y Venta Neta estimada — base del cálculo de crecimiento y estacionalidad de arriba</div>
+        <div class="section-subtitle" id="projRoiNota">Venta Bruta reportada por año y Venta Neta estimada</div>
       </div>
       <div class="card full" style="margin-top:14px">
         <div class="card-header"><div class="card-title">Venta Bruta mensual · <span class="proj-yfirst">2015</span>-<span class="proj-yc">2026</span></div><div class="card-meta">Color = intensidad vs el mes de mayor venta del histórico. Hover para ver detalle y YoY</div></div>
@@ -1510,5 +1591,6 @@ tbody tr:hover { background: var(--bg-card-hover); }
 
 <script src="engine.js"></script>
 <script src="app.js"></script>
+<script src="proyeccion.js"></script>
 </body>
 </html>
